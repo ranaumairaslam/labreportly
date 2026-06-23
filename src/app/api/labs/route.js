@@ -1,0 +1,126 @@
+import { NextResponse } from "next/server";
+import { ensureDatabaseIndexes, getCollections, toObjectId } from "@/lib/db";
+
+// Fallback / Initial Seed data
+
+
+function formatLab(lab) {
+  return {
+    id: lab._id.toString(),
+    name: lab.name,
+    owner: lab.owner || "N/A",
+    email: lab.email,
+    status: lab.status,
+    date: new Date(lab.createdAt).toISOString().split("T")[0],
+  };
+}
+
+export async function GET() {
+  try {
+    await ensureDatabaseIndexes();
+    const { labs: labsCollection } = await getCollections();
+    let dbLabs = await labsCollection.find({}).sort({ createdAt: -1 }).toArray();
+
+    if (dbLabs.length === 0) {
+      const now = new Date();
+      await labsCollection.insertMany(initialLabs.map((lab, index) => ({
+        ...lab,
+        createdAt: new Date(now.getTime() - index * 24 * 60 * 60 * 1000),
+        updatedAt: now,
+      })));
+      dbLabs = await labsCollection.find({}).sort({ createdAt: -1 }).toArray();
+    }
+
+    return NextResponse.json({ labs: dbLabs.map(formatLab) });
+  } catch (error) {
+    console.error("GET /api/labs error:", error);
+    return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function POST(req) {
+  try {
+    await ensureDatabaseIndexes();
+    const { labs: labsCollection } = await getCollections();
+    const body = await req.json();
+    const name = body.name || body.lab_name;
+    const owner = body.owner || body.admin_name || body.owner;
+    const email = body.email || body.admin_email;
+    const password = body.password;
+
+    if (!name || !email || !password) {
+      return NextResponse.json({ message: "Missing required parameters (name, email, password)" }, { status: 400 });
+    }
+
+    const existingLab = await labsCollection.findOne({ email });
+
+    if (existingLab) {
+      return NextResponse.json({ message: "A laboratory with this email already exists" }, { status: 409 });
+    }
+
+    const now = new Date();
+    const result = await labsCollection.insertOne({
+      name,
+      owner: owner || "N/A",
+      email,
+      password,
+      status: "Active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const newLab = await labsCollection.findOne({ _id: result.insertedId });
+
+    return NextResponse.json({
+      message: "Laboratory onboarded successfully",
+      lab: formatLab(newLab)
+    }, { status: 201 });
+  } catch (error) {
+    console.error("POST /api/labs error:", error);
+    return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function PUT(req) {
+  try {
+    await ensureDatabaseIndexes();
+    const { labs: labsCollection } = await getCollections();
+    const body = await req.json();
+    const { id, status, name, owner, email, password } = body || {};
+
+    if (!id) {
+      return NextResponse.json({ message: "Missing laboratory ID" }, { status: 400 });
+    }
+
+    const _id = toObjectId(id);
+    if (!_id) {
+      return NextResponse.json({ message: "Invalid laboratory ID" }, { status: 400 });
+    }
+
+    const data = {
+      ...(status !== undefined && { status }),
+      ...(name !== undefined && { name }),
+      ...(owner !== undefined && { owner }),
+      ...(email !== undefined && { email }),
+      ...(password !== undefined && { password }),
+      updatedAt: new Date(),
+    };
+
+    const result = await labsCollection.findOneAndUpdate(
+      { _id },
+      { $set: data },
+      { returnDocument: "after" }
+    );
+
+    if (!result) {
+      return NextResponse.json({ message: "Laboratory not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      message: "Laboratory updated successfully",
+      lab: formatLab(result)
+    });
+  } catch (error) {
+    console.error("PUT /api/labs error:", error);
+    return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
+  }
+}
