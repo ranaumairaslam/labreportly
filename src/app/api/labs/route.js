@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseIndexes, getCollections, toObjectId } from "@/lib/db";
 
-// Fallback / Initial Seed data
-
-
 function formatLab(lab) {
   return {
     id: lab._id.toString(),
@@ -19,17 +16,7 @@ export async function GET() {
   try {
     await ensureDatabaseIndexes();
     const { labs: labsCollection } = await getCollections();
-    let dbLabs = await labsCollection.find({}).sort({ createdAt: -1 }).toArray();
-
-    if (dbLabs.length === 0) {
-      const now = new Date();
-      await labsCollection.insertMany(initialLabs.map((lab, index) => ({
-        ...lab,
-        createdAt: new Date(now.getTime() - index * 24 * 60 * 60 * 1000),
-        updatedAt: now,
-      })));
-      dbLabs = await labsCollection.find({}).sort({ createdAt: -1 }).toArray();
-    }
+    const dbLabs = await labsCollection.find({}).sort({ createdAt: -1 }).toArray();
 
     return NextResponse.json({ labs: dbLabs.map(formatLab) });
   } catch (error) {

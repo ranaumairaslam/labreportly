@@ -1,34 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
 
-
-
-async function seedPatientsIfEmpty(collections) {
-  const patientCount = await collections.patients.countDocuments();
-  if (patientCount > 0) {
-    return;
-  }
-
-  const now = new Date();
-  await Promise.all([
-    collections.patients.insertMany(initialPatients.map(patient => ({
-      ...patient,
-      createdAt: now,
-      updatedAt: now,
-    }))),
-    collections.advancePayments.insertMany(initialAdvancePayments.map(payment => ({
-      ...payment,
-      createdAt: now,
-      updatedAt: now,
-    }))),
-    collections.pendingPayments.insertMany(initialPendingPayments.map(payment => ({
-      ...payment,
-      createdAt: now,
-      updatedAt: now,
-    }))),
-  ]);
-}
-
 function cleanDocument(document) {
   const { _id, createdAt, updatedAt, ...rest } = document;
   return rest;
@@ -38,7 +10,6 @@ export async function GET() {
   try {
     await ensureDatabaseIndexes();
     const collections = await getCollections();
-    await seedPatientsIfEmpty(collections);
 
     const [patients, advancePayments, pendingPayments] = await Promise.all([
       collections.patients.find({}).sort({ createdAt: 1 }).toArray(),
@@ -53,16 +24,6 @@ export async function GET() {
     });
   } catch (error) {
     console.error("GET /api/patients error:", error);
-    if (error.message?.includes("MongoDB is not configured")) {
-      return NextResponse.json({
-        patients: initialPatients,
-        advancePayments: initialAdvancePayments,
-        pendingPayments: initialPendingPayments,
-        databaseConnected: false,
-        message: "MongoDB is not configured. Using demo data.",
-      });
-    }
-
     return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
   }
 }
@@ -110,9 +71,9 @@ export async function POST(req) {
     return NextResponse.json({ message: "Patient added", patient }, { status: 201 });
   } catch (e) {
     console.error("POST /api/patients error:", e);
-    if (e.message?.includes("MongoDB is not configured")) {
+    if (e.message?.includes("database is not configured")) {
       return NextResponse.json({
-        message: "Patient added in demo mode. Add MONGODB_URI to save to MongoDB.",
+        message: "Patient added in demo mode. Add DATABASE_URL to save to Neon.",
         patient,
         advancePayment,
         pendingPayment,
