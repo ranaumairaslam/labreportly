@@ -32,7 +32,7 @@ function formatPKR(value) {
   return value.toLocaleString("en-PK");
 }
 
-/* Design Philosophy: Clinical Elegance
+/* Desig bbn Philosophy: Clinical Elegance
    - Green (#004d26) and yellow (#FBBF24) color palette maintained
    - Soft shadows and subtle gradients for depth
    - Responsive grid layout with generous whitespace
