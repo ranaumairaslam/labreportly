@@ -411,6 +411,181 @@ const CUSTOM_TEMPLATES = {
       { isSection: false, test: "I.N.R", result: "", units: "", normalValue: "" }
     ]
   },
+  "direct bilirubin. indirect bilirubin. .doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "Total Bilirubin. Direct Bilirubin. Indirect Bilirubin.",
+    columns: DEFAULT_COLUMNS,
+    rows: [
+      { isSection: false, test: "Serum Bilirubin (Total)", result: "", units: "mg/dl", normalValue: "0.2 - 1.0" },
+      { isSection: false, test: "Serum Bilirubin (Direct)", result: "", units: "mg/dl", normalValue: "0 - 0.2" },
+      { isSection: false, test: "Serum Bilirubin (Indirect)", result: "", units: "mg/dl", normalValue: "0.2 - 0.8" }
+    ]
+  },
+  "blood peripheral film.doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "Peripheral Film",
+    columns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }],
+    rows: [
+      { isSection: true, test: "RBCs Morphology" },
+      { isSection: false, test: "Blood picture shows", result: "" },
+      { isSection: false, test: "Microcytes", result: "" },
+      { isSection: false, test: "Hypochromic", result: "" },
+      { isSection: false, test: "Impression", result: "" },
+      { isSection: false, test: "Nucleated RBCs", result: "" },
+      { isSection: false, test: "Malarial Parasites", result: "" },
+      { isSection: false, test: "Platelets", result: "" },
+      { isSection: true, test: "WBCs Morphology" },
+      { isSection: false, test: "WBCs Morphology", result: "" },
+      { isSection: true, test: "NOTE: No immature cells are seen." }
+    ]
+  },
+  "lipid profil  compleat.doc": {
+    categoryTitle: "BIOCHEMISTRY REPORT",
+    specimen: "Blood",
+    examRequired: "Lipid Profile",
+    columns: DEFAULT_COLUMNS,
+    rows: [
+      { isSection: true, test: "Lipid Profile" },
+      { isSection: false, test: "Cholesterol", result: "", units: "mg / dL", normalValue: "Desirable: < 200\nBorderline High: 200 - 239\nVery High: > 240" },
+      { isSection: false, test: "Triglycerides", result: "", units: "mg / dL", normalValue: "Desirable: < 150\nBorderline High: 150 - 199\nHigh: 200 - 499\nVery High: > 500" },
+      { isSection: false, test: "HDL-Cholesterol", result: "", units: "mg / dL", normalValue: "Men:\nLow level at increased risk: < 40\nAverage level at average risk: 40 - 50\nHigh level at less than average risk: > 60\nWomen:\nLow level at increased risk: < 50\nAverage level at average risk: 50 - 59\nHigh level at less than average risk: > 60" },
+      { isSection: false, test: "LDL-Cholesterol", result: "", units: "mg / dL", normalValue: "Optimal: < 100\nNear Optimal: 100 - 129\nBorderline High: 130 - 159\nHigh: 160 - 189\nVery High: > 190" },
+      { isSection: false, test: "VLDL-Cholesterol", result: "", units: "mg / dL", normalValue: "Desirable: < 30" },
+      { isSection: false, test: "Cholesterol / HDL Ratio", result: "", units: "mg / dL", normalValue: "Optimal: < 4.0\nBorderline: 4.0 - 6.0\nHigh: > 6.0" }
+    ]
+  },
+  "lft+bc.doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "S.G.P.T.(ALT). Anti HCV. HBsAg",
+    columns: DEFAULT_COLUMNS,
+    rows: [
+      { isSection: false, test: "S.G.P.T.(ALT)", result: "", units: "Unit/L", normalValue: "Male up to 41\nFemale up to 31" },
+      { isSection: false, test: "Hepatitis B Virus. (HBsAg) By (I.C.T)", result: "", units: "", normalValue: "", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Hepatitis C Virus. (Anti HCV) By (I.C.T)", result: "", units: "", normalValue: "" },
+      { isSection: true, test: "COMMENTS:\nHBsAg & Anti HCV tests are performed by an immunochromatographic screening method. The technique has sensitivity of 99% and specificity of 98%. Clinically inconsistent results should be reconfirmed by an alternative method (e.g. EIA)." }
+    ]
+  },
+  "hb%.grouping.b.c..doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "Hb%. Grouping. HBsAg. Anti HCV.",
+    columns: DEFAULT_COLUMNS,
+    rows: [
+      { isSection: false, test: "Haemoglobin", result: "", units: "gms/100ml", normalValue: "Male. 14 - 18\nFemale. 12 - 16" },
+      { isSection: false, test: "Blood Grouping & Rh. Factor", result: "", units: "", normalValue: "", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Hepatitis B virus (HBsAg) By (I.C.T)", result: "", units: "", normalValue: "" },
+      { isSection: false, test: "Anti HCV (Hepatitis C virus) By (I.C.T)", result: "", units: "", normalValue: "" },
+      { isSection: true, test: "COMMENTS:-\nHBsAg & Anti HCV tests are performed by an immunochromatographic screening method. The technique has sensitivity of 99% and specificity of 98%. Clinically inconsistent results should be reconfirmed by an alternative method (e.g. EIA)." }
+    ]
+  },
+  "hbsag elisa.doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "S.G.P.T.(ALT). HBsAg (Elisa)",
+    columns: DEFAULT_COLUMNS,
+    rows: [
+      { isSection: false, test: "SGPT (ALT)", result: "", units: "Unit/L", normalValue: "Male up to 41\nFemale up to 31" },
+      { isSection: false, test: "HBsAg (Elisa)", result: "", units: "", normalValue: "", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Cut off Value", result: "" },
+      { isSection: false, test: "Patient Value", result: "" }
+    ]
+  },
+  "milk analysis.doc": {
+    categoryTitle: "MILK ANALYSIS REPORT",
+    specimen: "Milk",
+    examRequired: "C/E",
+    columns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }],
+    rows: [
+      { isSection: true, test: "RIGHT - PHYSICAL EXAMINATION" },
+      { isSection: false, test: "Colour", result: "" },
+      { isSection: true, test: "RIGHT - CHEMICAL EXAMINATION" },
+      { isSection: false, test: "Ph", result: "" },
+      { isSection: false, test: "Protein", result: "" },
+      { isSection: false, test: "Sugar (Lactose)", result: "" },
+      { isSection: true, test: "RIGHT - MICROSCOPIC EXAMINATION" },
+      { isSection: false, test: "Pus Cells", result: "" },
+      { isSection: false, test: "R.B.Cs", result: "" },
+      { isSection: false, test: "EPI Cells", result: "" },
+      { isSection: false, test: "Bacteria", result: "" },
+      { isSection: true, test: "LEFT - PHYSICAL EXAMINATION", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Colour", result: "" },
+      { isSection: true, test: "LEFT - CHEMICAL EXAMINATION" },
+      { isSection: false, test: "Ph", result: "" },
+      { isSection: false, test: "Protein", result: "" },
+      { isSection: false, test: "Sugar (Lactose)", result: "" },
+      { isSection: true, test: "LEFT - MICROSCOPIC EXAMINATION" },
+      { isSection: false, test: "Pus Cells", result: "" },
+      { isSection: false, test: "R.B.Cs", result: "" },
+      { isSection: false, test: "EPI Cells", result: "" },
+      { isSection: false, test: "Bacteria", result: "" }
+    ]
+  },
+  "plural fluid.doc": {
+    categoryTitle: "PLURAL EXAMINATION",
+    specimen: "Fluid",
+    examRequired: "C/E",
+    columns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }],
+    rows: [
+      { isSection: true, test: "PHYSICAL EXAMINATION" },
+      { isSection: false, test: "Volume", result: "" },
+      { isSection: false, test: "Appearance", result: "" },
+      { isSection: false, test: "Colour", result: "" },
+      { isSection: false, test: "Deposit", result: "" },
+      { isSection: false, test: "Coagulum", result: "" },
+      { isSection: true, test: "CHEMICAL EXAMINATION" },
+      { isSection: false, test: "Reaction (PH)", result: "" },
+      { isSection: false, test: "Coagulum", result: "" },
+      { isSection: false, test: "Glucose. (Random)", result: "", units: "mg/dl", normalValue: "", newTable: true, tableColumns: DEFAULT_COLUMNS },
+      { isSection: false, test: "Proteins", result: "", units: "mg/dl", normalValue: "" },
+      { isSection: false, test: "Total R.B.Cs.", result: "", units: "Cmm", normalValue: "", newTable: true, tableColumns: DEFAULT_COLUMNS },
+      { isSection: false, test: "TLC Total Leucocytes Count.", result: "", units: "Cmm", normalValue: "" },
+      { isSection: true, test: "Diff.Leucocytes. Count (DLC)" },
+      { isSection: false, test: "Neutrophils", result: "", units: "%", normalValue: "55 - 70" },
+      { isSection: false, test: "Lymphocytes", result: "", units: "%", normalValue: "25 - 40" },
+      { isSection: false, test: "Gram Staining", result: "", units: "", normalValue: "", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Z N Staining", result: "" }
+    ]
+  },
+  "hbsag.hcv.doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "Glucose. Blood Group. HBsAg. Anti HCV. HIV (AIDS)",
+    columns: DEFAULT_COLUMNS,
+    rows: [
+      { isSection: false, test: "Glucose. (Random)", result: "", units: "mg/dl", normalValue: "80 - 160" },
+      { isSection: false, test: "Blood Grouping & Rh. Factor", result: "", units: "", normalValue: "", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Hepatitis B virus. (HBsAg) By (I.C.T)", result: "", units: "", normalValue: "", newTable: true, tableColumns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }] },
+      { isSection: false, test: "Anti HCV. (Hepatitis C virus) By (I.C.T)", result: "" },
+      { isSection: false, test: "HIV (AIDS) By (I.C.T)", result: "" },
+      { isSection: true, test: "COMMENTS:\nHBsAg & Anti HCV tests are performed by an immunochromatographic screening method. The technique has sensitivity of 99% and specificity of 98%. Clinically inconsistent results should be reconfirmed by an alternative method (e.g. EIA)." }
+    ]
+  },
+  "aso titer.doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "ASO TITER",
+    columns: [{ key: "test", label: "DILUTION OF SERUM" }, { key: "result", label: "RESULT" }],
+    rows: [
+      { isSection: false, test: "1:1 (200)", result: "" },
+      { isSection: false, test: "1:2 (400)", result: "" },
+      { isSection: false, test: "1:4 (800)", result: "" },
+      { isSection: false, test: "1:8 (1600)", result: "" },
+      { isSection: false, test: "1:16 (3200)", result: "" },
+      { isSection: false, test: "ASO Titer test is", result: "" }
+    ]
+  },
+  "a.s.o titer.doc": {
+    categoryTitle: "LABORATORY REPORT",
+    specimen: "Blood",
+    examRequired: "A.S.O.Titre",
+    columns: [{ key: "test", label: "TEST" }, { key: "result", label: "RESULT" }],
+    rows: [
+      { isSection: false, test: "A.S.O.Titre", result: "" }
+    ]
+  },
   "s.bilirubin.b.c.doc": {
     categoryTitle: "LABORATORY REPORT",
     specimen: "Blood",

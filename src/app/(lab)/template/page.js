@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
@@ -641,7 +641,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
             {templateMode === "print" && <div className="h-6 w-full" />}
 
             {/* Patient Details Metadata Table - Always visible */}
-            <table className="w-full text-[13px] border border-black mb-4 ">
+            <table className="w-full text-[13px] border border-black mb-7   mt-22">
               <tbody>
                 <tr>
                   <td className="w-[15%] p-1 border border-black font-bold bg-[#f3f4f6]">No:</td>

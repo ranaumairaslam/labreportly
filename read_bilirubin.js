@@ -3,7 +3,7 @@ const path = require('path');
 
 async function run() {
   const reportsDir = path.join(__dirname, 'public', 'reports');
-  const filename = 'Direct Bilirubin. Indirect Bilirubin.  .doc';
+  const filename = 'Direct Bilirubin. Indirect Bilirubin. .doc';
   const filepath = path.join(reportsDir, filename);
   console.log('=== FILE:', filename, '===');
   try {

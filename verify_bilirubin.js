@@ -214,7 +214,7 @@ async function buildTemplate(fileName) {
 }
 
 async function run() {
-  const t = await buildTemplate("Direct Bilirubin. Indirect Bilirubin.  .doc");
+  const t = await buildTemplate("Direct Bilirubin. Indirect Bilirubin. .doc");
   console.log("=== Direct Bilirubin. Indirect Bilirubin. ===");
   console.log(JSON.stringify(t, null, 2));
 }

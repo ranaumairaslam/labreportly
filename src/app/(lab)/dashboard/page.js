@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { FileText, Menu, Plus, Printer, Search, Trash2, X } from "lucide-react";
 
+
 function createPaymentId(prefix, existingPayments = []) {
   let id;
   do {
