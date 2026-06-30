@@ -14,6 +14,9 @@ function formatLab(lab) {
     owner: lab.owner || "N/A",
     email: lab.email,
     status: lab.status,
+    branding: lab.branding || null,
+    address: lab.address || "",
+    phone: lab.phone || "",
     date: new Date(lab.createdAt).toISOString().split("T")[0],
   };
 }
@@ -86,7 +89,7 @@ export async function PUT(req) {
     await ensureDatabaseIndexes();
     const { labs: labsCollection } = await getCollections();
     const body = await req.json();
-    const { id, status, name, owner, email, password } = body || {};
+    const { id, status, name, owner, email, password, branding, address, phone } = body || {};
 
     if (!id) {
       return NextResponse.json({ message: "Missing laboratory ID" }, { status: 400 });
@@ -103,6 +106,9 @@ export async function PUT(req) {
       ...(owner !== undefined && { owner }),
       ...(email !== undefined && { email }),
       ...(password !== undefined && { password }),
+      ...(branding !== undefined && { branding }),
+      ...(address !== undefined && { address }),
+      ...(phone !== undefined && { phone }),
       updatedAt: new Date(),
     };
 

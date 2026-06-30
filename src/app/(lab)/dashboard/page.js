@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { FileText, Menu, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { FileText, Menu, Plus, Printer, Search, Settings, Trash2, X } from "lucide-react";
+import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
+import { readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
 
 
 function createPaymentId(prefix, existingPayments = []) {
@@ -43,6 +45,8 @@ function formatPKR(value) {
 export default function Home() {
   const [activeTab, setActiveTab] = useState("Overview");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
+  const [branding, setBranding] = useState(readStoredBranding);
   const [patientSearch, setPatientSearch] = useState("");
   
   // Registration Form States
@@ -95,12 +99,22 @@ export default function Home() {
   const [isReportSaving, setIsReportSaving] = useState(false);
 
   // Menu items with icons
-  const menuItems = [
+  const baseMenuItems = [
     { name: "Overview", icon: "📊" },
     { name: "New Registration", icon: "📝" },
     { name: "Revenue", icon: "💰" },
     { name: "Reports", icon: "📈" },
   ];
+
+  const menuItems = (branding.dashboardMenuOrder || [])
+    .map((name) => baseMenuItems.find((item) => item.name === name))
+    .filter(Boolean)
+    .concat(baseMenuItems.filter((item) => !(branding.dashboardMenuOrder || []).includes(item.name)));
+
+  const handleBrandingSave = (nextBranding) => {
+    setBranding(nextBranding);
+    storeBranding(nextBranding);
+  };
 
   // Stats computation parameters
   const todayDate = getLocalDateString();
@@ -1287,21 +1301,33 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden font-sans">
+      {isCustomizerOpen && (
+        <DashboardCustomizer
+          open={isCustomizerOpen}
+          onClose={() => setIsCustomizerOpen(false)}
+          branding={branding}
+          onSave={handleBrandingSave}
+          menuKey="dashboardMenuOrder"
+          menuItems={baseMenuItems}
+        />
+      )}
+
       {/* SIDEBAR - DESKTOP */}
-      <aside className="hidden lg:flex flex-col w-64 bg-[#004d26] text-white border-r border-emerald-900 z-30 transition-all duration-300">
+      <aside className="hidden lg:flex flex-col w-64 text-white border-r border-emerald-900 z-30 transition-all duration-300" style={{ backgroundColor: branding.primaryColor }}>
         <div className="p-1 border-b border-emerald-900 flex items-center">
           <div className="w-22 h-22 flex  shadow-inner overflow-hidden">
             <Image
-              src="/Al-jannat.png"
-              alt="Al-Jannat logo"
+              src={branding.logoUrl}
+              alt={`${branding.labName} logo`}
               width={100}
               height={100}
               className="h-full w-full object-contain p-1"
+              unoptimized
             />
           </div>
           <div>
-            <h1 className="font-black text-sm tracking-wider uppercase text-yellow-400">Al-Jannat</h1>
-            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest">CLINICAL LAB</p>
+            <h1 className="font-black text-sm tracking-wider uppercase" style={{ color: branding.accentColor }}>{branding.labName}</h1>
+            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest uppercase">{branding.tagline}</p>
           </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
@@ -1314,12 +1340,23 @@ export default function Home() {
                   ? "bg-yellow-400 text-[#004d26] shadow-md font-bold scale-[1.02]"
                   : "text-emerald-100 hover:bg-emerald-800/60 hover:text-white"
               }`}
+              style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
             >
               <span className="text-base">{item.icon}</span>
               {item.name}
             </button>
           ))}
         </nav>
+        <div className="px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => setIsCustomizerOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800/60 hover:text-white transition-all"
+          >
+            <Settings className="h-4 w-4" />
+            Edit Dashboard
+          </button>
+        </div>
         <div className="p-4 border-t border-emerald-900 bg-[#003d1e]">
           <div className="flex items-center gap-3 p-2 rounded-lg bg-emerald-950/40">
             <div className="w-8 h-8 rounded-full bg-yellow-400 text-[#004d26] flex items-center justify-center font-bold text-xs">AD</div>
@@ -1334,19 +1371,20 @@ export default function Home() {
       {/* SIDEBAR - MOBILE */}
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 lg:hidden animate-in fade-in duration-200">
-          <aside className="w-64 bg-[#004d26] text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200">
+          <aside className="w-64 text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200" style={{ backgroundColor: branding.primaryColor }}>
             <div className="p-6 border-b border-emerald-900 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-white rounded-md flex items-center justify-center overflow-hidden">
                   <Image
-                    src="/logo.png"
-                    alt="Al-Jannat logo"
+                    src={branding.logoUrl}
+                    alt={`${branding.labName} logo`}
                     width={36}
                     height={36}
                     className="h-full w-full object-contain p-1"
+                    unoptimized
                   />
                 </div>
-                <span className="font-bold text-yellow-400">Al-Jannat</span>
+                <span className="font-bold" style={{ color: branding.accentColor }}>{branding.labName}</span>
               </div>
               <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(false)} className="text-white hover:bg-emerald-800">
                 <X className="w-5 h-5" />
@@ -1360,12 +1398,26 @@ export default function Home() {
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm ${
                     activeTab === item.name ? "bg-yellow-400 text-[#004d26] font-bold" : "text-emerald-100 hover:bg-emerald-800"
                   }`}
+                  style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
                 >
                   <span>{item.icon}</span>
                   {item.name}
                 </button>
               ))}
             </nav>
+            <div className="px-4 pb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCustomizerOpen(true);
+                  setIsMobileSidebarOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800"
+              >
+                <Settings className="h-4 w-4" />
+                Edit Dashboard
+              </button>
+            </div>
           </aside>
         </div>
       )}
@@ -1384,8 +1436,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right hidden md:block">
-              <p className="text-xs font-bold text-slate-700">Thana Bazar, Arifwala</p>
-              <p className="text-[10px] text-slate-400 font-semibold">Cell: 0300-6943193</p>
+              <p className="text-xs font-bold text-slate-700">{branding.address}</p>
+              <p className="text-[10px] text-slate-400 font-semibold">Cell: {branding.phone}</p>
             </div>
           </div>
         </header>
