@@ -38,8 +38,17 @@ function normalizeRows(rows) {
   return rows.map(normalizeDocument);
 }
 
+function getFilterEntries(filter = {}) {
+  return Object.entries(filter);
+}
+
 function getFirstFilterEntry(filter = {}) {
-  const entries = Object.entries(filter);
+  const entries = getFilterEntries(filter);
+  return entries.length ? entries[0] : null;
+}
+
+function getSortEntry(sortSpec = {}) {
+  const entries = Object.entries(sortSpec);
   return entries.length ? entries[0] : null;
 }
 
@@ -60,40 +69,25 @@ function createFinder(tableName, filter = {}) {
 
 async function queryDocuments(tableName, filter = {}, sortSpec = {}) {
   const sql = getSql();
-  const filterEntry = getFirstFilterEntry(filter);
-  const sortEntry = getFirstFilterEntry(sortSpec);
+  const filterEntries = getFilterEntries(filter);
+  const sortEntry = getSortEntry(sortSpec);
   const sortField = sortEntry?.[0] || "createdAt";
   const sortDirection = sortEntry?.[1] === -1 ? "DESC" : "ASC";
-
-  if (filterEntry && sortField === "createdAt") {
-    const [field, value] = filterEntry;
-    const rows = await sql.query(
-      `SELECT id AS _id, data, created_at, updated_at
-       FROM ${tableName}
-       WHERE data->>$1 = $2
-       ORDER BY created_at ${sortDirection}`,
-      [field, String(value)]
-    );
-    return normalizeRows(rows);
-  }
-
-  if (filterEntry) {
-    const [field, value] = filterEntry;
-    const rows = await sql.query(
-      `SELECT id AS _id, data, created_at, updated_at
-       FROM ${tableName}
-       WHERE data->>$1 = $2`,
-      [field, String(value)]
-    );
-    return normalizeRows(rows);
-  }
-
   const orderBy = sortField === "createdAt" ? "created_at" : "updated_at";
-  const rows = await sql.query(
-    `SELECT id AS _id, data, created_at, updated_at
-     FROM ${tableName}
-     ORDER BY ${orderBy} ${sortDirection}`
-  );
+
+  let query = `SELECT id AS _id, data, created_at, updated_at FROM ${tableName}`;
+  let values = [];
+
+  if (filterEntries.length) {
+    const clauses = filterEntries.map(([field, value], index) => {
+      values.push(field, String(value));
+      return `data->>$${index * 2 + 1} = $${index * 2 + 2}`;
+    });
+    query += ` WHERE ${clauses.join(" AND ")}`;
+  }
+
+  query += ` ORDER BY ${orderBy} ${sortDirection}`;
+  const rows = await sql.query(query, values);
   return normalizeRows(rows);
 }
 
@@ -253,6 +247,7 @@ export async function getCollections() {
     advancePayments: createCollection("advance_payments", "id"),
     pendingPayments: createCollection("pending_payments", "id"),
     reports: createCollection("reports", "reportNumber"),
+    staffAccounts: createCollection("staff_accounts", "email"),
   };
 }
 
@@ -306,6 +301,15 @@ export async function ensureDatabaseIndexes() {
     )
   `;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS staff_accounts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      data jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+
   await Promise.all([
     sql`CREATE UNIQUE INDEX IF NOT EXISTS labs_email_idx ON labs ((data->>'email'))`,
     sql`CREATE UNIQUE INDEX IF NOT EXISTS patients_public_id_idx ON patients ((data->>'id'))`,
@@ -313,6 +317,8 @@ export async function ensureDatabaseIndexes() {
     sql`CREATE UNIQUE INDEX IF NOT EXISTS pending_payments_public_id_idx ON pending_payments ((data->>'id'))`,
     sql`CREATE INDEX IF NOT EXISTS reports_patient_id_idx ON reports ((data->>'patientId'))`,
     sql`CREATE INDEX IF NOT EXISTS reports_number_idx ON reports ((data->>'reportNumber'))`,
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS staff_accounts_lab_email_idx ON staff_accounts ((data->>'labId'), (data->>'email'))`,
+    sql`CREATE INDEX IF NOT EXISTS staff_accounts_lab_id_idx ON staff_accounts ((data->>'labId'))`,
   ]);
 }
 

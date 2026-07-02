@@ -23,20 +23,20 @@ export default function StaffLogin() {
             return {
               labName: parsed.labName,
               logoUrl: parsed.logoUrl,
-              tagline: parsed.tagline || "Clinical Laboratory",
-              address: parsed.address || "171-D Block, Near Faysal Bank, Thana Bazar, Arifwala",
-              phone: parsed.phone || "0300-6943193"
+              tagline: parsed.tagline || "",
+              address: parsed.address || "",
+              phone: parsed.phone || ""
             };
           }
         } catch (e) {}
       }
     }
     return {
-      labName: "AL-JANNAT",
-      logoUrl: "/Al-jannat.png",
-      tagline: "Clinical Laboratory",
-      address: "171-D Block, Near Faysal Bank, Thana Bazar, Arifwala",
-      phone: "0300-6943193"
+      labName: "",
+      logoUrl: "/",
+      tagline: "",
+      address: "",
+      phone: ""
     };
   });
 
@@ -51,11 +51,11 @@ export default function StaffLogin() {
             const b = activeLab.branding || {};
             const nextBranding = {
               labId: activeLab.id,
-              labName: b.labName || activeLab.name || "AL-JANNAT",
-              logoUrl: b.logoUrl || "/Al-jannat.png",
-              tagline: b.tagline || "Clinical Laboratory",
-              address: b.address || activeLab.address || "171-D Block, Near Faysal Bank, Thana Bazar, Arifwala",
-              phone: b.phone || activeLab.phone || "0300-6943193",
+              labName: b.labName || activeLab.name || "",
+              logoUrl: b.logoUrl || "/",
+              tagline: b.tagline || "",
+              address: b.address || activeLab.address || "",
+              phone: b.phone || activeLab.phone || "",
               primaryColor: b.primaryColor || "#004d26",
               accentColor: b.accentColor || "#FBBF24",
               dashboardMenuOrder: b.dashboardMenuOrder || ["Overview", "New Registration", "Revenue", "Reports"],
@@ -87,16 +87,15 @@ export default function StaffLogin() {
       });
 
       const labData = await labRes.json();
-
       if (labRes.ok) {
         localStorage.setItem("lab_profile", JSON.stringify(labData.lab));
         localStorage.setItem("lab_dashboard_branding", JSON.stringify({
           labId: labData.lab.id,
           labName: labData.lab.branding?.labName || labData.lab.name,
-          tagline: labData.lab.branding?.tagline || "Clinical Laboratory",
-          address: labData.lab.branding?.address || labData.lab.address || "Thana Bazar, Arifwala",
-          phone: labData.lab.branding?.phone || labData.lab.phone || "0300-6943193",
-          logoUrl: labData.lab.branding?.logoUrl || "/Al-jannat.png",
+          tagline: labData.lab.branding?.tagline || "",
+          address: labData.lab.branding?.address || labData.lab.address || "",
+          phone: labData.lab.branding?.phone || labData.lab.phone || "",
+          logoUrl: labData.lab.branding?.logoUrl || "/",
           primaryColor: labData.lab.branding?.primaryColor || "#004d26",
           accentColor: labData.lab.branding?.accentColor || "#FBBF24",
           dashboardMenuOrder: labData.lab.branding?.dashboardMenuOrder || ["Overview", "New Registration", "Revenue", "Reports"],
@@ -106,20 +105,31 @@ export default function StaffLogin() {
         return;
       }
 
-      const staffRes = await fetch("/api/staff/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credentials),
-      });
+      if (labData.message === "Invalid email or password") {
+        const staffRes = await fetch("/api/staff/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentials),
+        });
 
-      const staffData = await staffRes.json();
+        const staffData = await staffRes.json();
+        if (staffRes.ok) {
+          localStorage.setItem("staff_profile", JSON.stringify({
+            ...staffData.staff,
+            role: staffData.staff?.role || "Staff",
+            canCreateStaff: Boolean(staffData.staff?.canCreateStaff),
+          }));
+          if (staffData.staff?.labId) {
+            localStorage.setItem("lab_profile", JSON.stringify({ id: staffData.staff.labId }));
+          }
+          router.push("/staff-dashboard");
+          return;
+        }
 
-      if (staffRes.ok) {
-        router.push("/staff-dashboard");
-        return;
+        throw new Error(staffData.message || "Invalid credentials");
       }
 
-      throw new Error(staffData.message || labData.message || "Invalid credentials");
+      throw new Error(labData.message || "Invalid credentials");
     } catch (err) {
       setError(err.message || "Login failed");
     } finally {
@@ -136,8 +146,8 @@ export default function StaffLogin() {
       <div className="flex flex-col items-center mb-6">
   <div className="relative w-24 h-24 overflow-hidden rounded-full border border-slate-200 bg-white shadow-md flex items-center justify-center">
     <Image
-      src={branding.logoUrl || "/Al-jannat.png"}
-      alt={branding.labName || "Al-Jannat"}
+      src={branding.logoUrl || "/"}
+      alt={branding.labName || ""}
       fill
       className="object-cover"
       unoptimized
@@ -145,11 +155,11 @@ export default function StaffLogin() {
   </div>
 
           <h1 className="text-3xl font-extrabold text-[#004d26] mt-3 tracking-wide uppercase">
-            {branding.labName || "AL-JANNAT"}
+            {branding.labName || ""}
           </h1>
 
           <p className="text-xs tracking-[0.35em] text-slate-500 uppercase mt-1 text-center">
-            {branding.tagline || "Clinical Laboratory"}
+            {branding.tagline || ""}
           </p>
         </div>
 
@@ -157,7 +167,7 @@ export default function StaffLogin() {
         <div className="backdrop-blur-xl bg-white/70 border border-white/40 shadow-2xl rounded-3xl p-8">
 
           <h2 className="text-center text-lg font-semibold text-slate-700 mb-6">
-            Staff Login Portal
+             Login Portal
           </h2>
 
           <form onSubmit={handleLogin} className="space-y-5">
@@ -235,9 +245,9 @@ export default function StaffLogin() {
           {/* FOOTER */}
           <div className="mt-6 text-center border-t pt-4">
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              {branding.address || "171-D Block, Near Faysal Bank, Thana Bazar, Arifwala"}
+              {branding.address || ""}
               <br />
-              Cell: {branding.phone || "0300-6943193"}
+              Cell: {branding.phone || ""}
             </p>
           </div>
         </div>

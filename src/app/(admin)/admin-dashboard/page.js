@@ -13,6 +13,7 @@ import {
   Loader2, 
   UserCheck, 
   UserX,
+  Trash2,
   X,
   Mail,
   Lock,
@@ -31,6 +32,8 @@ export default function SuperAdminDashboard() {
   // Dashboard state (fully frontend managed)
   const [labs, setLabs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useState([]);
+  const [patientsLoading, setPatientsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showOnboardModal, setShowOnboardModal] = useState(false);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
@@ -92,7 +95,26 @@ export default function SuperAdminDashboard() {
       }
     }
 
+    async function loadPatients() {
+      try {
+        setPatientsLoading(true);
+        const res = await fetch("/api/patients");
+        const data = await res.json();
+        if (res.ok && data.patients) {
+          setPatients(data.patients);
+        } else {
+          console.warn(data.message || "Could not load patient records for admin view.");
+        }
+      } catch (error) {
+        console.error(error);
+        toast.error("Could not load patient records. Check your database connection.");
+      } finally {
+        setPatientsLoading(false);
+      }
+    }
+
     loadLabs();
+    loadPatients();
   }, [router]);
 
   const handleLogout = () => {
@@ -132,6 +154,43 @@ export default function SuperAdminDashboard() {
     } catch (error) {
       console.error(error);
       toast.error("Could not update laboratory. Check your credentials or Database");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteLab = async (lab) => {
+    const confirmed = window.confirm(`Delete ${lab.name} and its staff accounts from the system?`);
+    if (!confirmed) return;
+
+    setActionLoading(lab.id);
+    const token = localStorage.getItem("super_admin_token");
+
+    try {
+      const res = await fetch("/api/admin/labs", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id: lab.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          localStorage.removeItem("super_admin_token");
+          router.push("/admin-login");
+          return;
+        }
+        throw new Error(data.message || "Could not delete laboratory");
+      }
+
+      setLabs(prev => prev.filter((item) => item.id !== lab.id));
+      toast.success(`${lab.name} deleted successfully`);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Could not delete laboratory. Check your credentials or Database");
     } finally {
       setActionLoading(null);
     }
@@ -211,6 +270,9 @@ export default function SuperAdminDashboard() {
     return labDate > thirtyDaysAgo;
   }).length;
 
+  const totalPatients = patients.length;
+  const recentPatients = [...patients].sort((a, b) => new Date(b.createdAt || b.registeredAt || 0) - new Date(a.createdAt || a.registeredAt || 0)).slice(0, 6);
+
   // Filter laboratories based on search query
   const filteredLabs = labs.filter(l => 
     l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -227,8 +289,8 @@ export default function SuperAdminDashboard() {
         <div className="space-y-8">
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#134e4a] via-[#0d9488] to-[#06b6d4] flex items-center justify-center font-bold text-white shadow-md shadow-teal-500/20">
-              SC
+            <div className="w-10 h-10 rounded-xl bg-color:white flex items-center justify-center font-bold text-white shadow-md shadow-teal-500/20">
+              <img src="/super/softcenteric-logo.webp" alt="Logo" className="w-10 h-8" />
             </div>
             <div>
               <h1 className="font-extrabold text-slate-900 tracking-wide text-lg">Softcenteric</h1>
@@ -258,7 +320,7 @@ export default function SuperAdminDashboard() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-600">
-                SA
+                <img src="/super/softcenteric-logo.webp" alt="Logo" className="w-6 h-5" />
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-800">Admin Account</p>
@@ -428,29 +490,45 @@ export default function SuperAdminDashboard() {
                         </td>
                         <td className="p-4 text-slate-500 text-xs font-mono">{lab.date}</td>
                         <td className="p-4 pr-6 text-right">
-                          <button
-                            disabled={actionLoading === lab.id}
-                            onClick={() => handleToggleStatus(lab.id, lab.status)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border focus:outline-none ${
-                              lab.status === "Active"
-                                ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 active:scale-95"
-                                : "bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-200 active:scale-95"
-                            } disabled:opacity-50`}
-                          >
-                            {actionLoading === lab.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : lab.status === "Active" ? (
-                              <>
-                                <UserX className="w-3.5 h-3.5" />
-                                Block Access
-                              </>
-                            ) : (
-                              <>
-                                <UserCheck className="w-3.5 h-3.5" />
-                                Activate
-                              </>
-                            )}
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              disabled={actionLoading === lab.id}
+                              onClick={() => handleToggleStatus(lab.id, lab.status)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border focus:outline-none ${
+                                lab.status === "Active"
+                                  ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-200 active:scale-95"
+                                  : "bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-200 active:scale-95"
+                              } disabled:opacity-50`}
+                            >
+                              {actionLoading === lab.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : lab.status === "Active" ? (
+                                <>
+                                  <UserX className="w-3.5 h-3.5" />
+                                  Block Access
+                                </>
+                              ) : (
+                                <>
+                                  <UserCheck className="w-3.5 h-3.5" />
+                                  Activate
+                                </>
+                              )}
+                            </button>
+                            <button
+                              disabled={actionLoading === lab.id}
+                              onClick={() => handleDeleteLab(lab)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 active:scale-95 disabled:opacity-50"
+                            >
+                              {actionLoading === lab.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Delete
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -459,6 +537,9 @@ export default function SuperAdminDashboard() {
               </table>
             </div>
           </section>
+
+          {/* RECENT PATIENTS */}
+         
         </div>
       </main>
 
@@ -494,7 +575,7 @@ export default function SuperAdminDashboard() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Al-Jannat Lab"
+                    placeholder=""
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none text-slate-800 text-sm focus:border-teal-500 focus:bg-white transition-all placeholder:text-slate-400"
@@ -511,7 +592,7 @@ export default function SuperAdminDashboard() {
                   </div>
                   <input
                     type="text"
-                    placeholder="e.g. Javaid Khan"
+                    placeholder=""
                     value={form.owner}
                     onChange={(e) => setForm({ ...form, owner: e.target.value })}
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none text-slate-800 text-sm focus:border-teal-500 focus:bg-white transition-all placeholder:text-slate-400"
@@ -529,7 +610,7 @@ export default function SuperAdminDashboard() {
                   <input
                     type="email"
                     required
-                    placeholder="e.g. contact@aljannat.lab"
+                    placeholder=""
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                     className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none text-slate-800 text-sm focus:border-teal-500 focus:bg-white transition-all placeholder:text-slate-400"

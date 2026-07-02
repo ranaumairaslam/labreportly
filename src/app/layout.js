@@ -12,10 +12,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "AL-JANNAT CLINICAL LAB",
+  title: "Sotcenteric | Laboratory Management System",
   description: "Laboratory Management System",
    icons: {
-    icon: "/logo.png",
+    icon: "/super/softcenteric-logo.webp",
   },
 };
 

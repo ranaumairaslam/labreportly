@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 
-// Simple in-memory demo auth.
-// In production, replace with DB + secure password hashing.
 
 export async function POST(req) {
   try {

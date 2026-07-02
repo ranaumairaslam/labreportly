@@ -353,6 +353,61 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     };
   }, [searchParams]);
 
+  // If opened as a saved report viewer (source=report), load the saved report from the DB
+  useEffect(() => {
+    let ignore = false;
+    async function loadSavedReport() {
+      const source = searchParams.get("source");
+      const reportNumber = searchParams.get("reportNumber") || searchParams.get("lastReportNumber");
+      if (source !== "report" || !reportNumber) return;
+
+      try {
+        const res = await fetch(`/api/reports?reportNumber=${encodeURIComponent(reportNumber)}`);
+        const data = await res.json();
+        if (!res.ok) {
+          console.warn(data.message || "Could not load saved report.");
+          return;
+        }
+
+        const report = (data.reports || [])[0];
+        if (!report) return;
+
+        // Populate form and test results from stored report
+        setFormData((prev) => ({
+          ...prev,
+          id: report.patientId || prev.id,
+          name: report.patientName || prev.name,
+          specimen: report.specimen || prev.specimen,
+          examRequired: report.examRequired || prev.examRequired,
+          categoryTitle: report.categoryTitle || prev.categoryTitle,
+          findings: report.findings || prev.findings,
+        }));
+
+        if (Array.isArray(report.results) && report.results.length) {
+          setTestResults(
+            report.results.map((r) => ({
+              isSection: false,
+              test: r.test || r.name || "",
+              result: r.result || r.value || "",
+              units: r.units || "",
+              normalValue: r.normalValue || "",
+            }))
+          );
+        }
+
+        // Switch to generated/print view
+        setIsGenerating(true);
+      } catch (err) {
+        console.error("Could not load saved report:", err);
+      }
+    }
+
+    loadSavedReport();
+    return () => {
+      ignore = true;
+    };
+  }, [searchParams]);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));

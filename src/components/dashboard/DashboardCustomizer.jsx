@@ -142,6 +142,11 @@ export default function DashboardCustomizer({
                 <input value={draft.labName} onChange={(e) => updateDraft("labName", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" required />
               </div>
               <div>
+              <div>
+ 
+</div>
+
+            
                 <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Tagline</label>
                 <input value={draft.tagline} onChange={(e) => updateDraft("tagline", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" />
               </div>

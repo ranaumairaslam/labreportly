@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -44,11 +45,13 @@ function getTemplateHref(patient) {
 
 
 export default function StaffDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("Registration");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
   const [branding, setBranding] = useState(readStoredBranding);
   const [patientSearch, setPatientSearch] = useState("");
+  const [labId, setLabId] = useState("");
   const [testQueueData, setTestQueueData] = useState([]);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
@@ -64,9 +67,31 @@ export default function StaffDashboard() {
   const regPendingBalance = Math.max(0, (parseInt(regTotalBill) || 0) - (parseInt(regAdvancePaid) || 0));
 
   useEffect(() => {
+    const storedStaff = typeof window !== "undefined" ? window.localStorage.getItem("staff_profile") : null;
+    if (!storedStaff) {
+      router.replace("/");
+      return;
+    }
+
+    let parsedStaff;
+    try {
+      parsedStaff = JSON.parse(storedStaff);
+      if (parsedStaff?.role !== "Staff") {
+        router.replace("/");
+        return;
+      }
+      if (parsedStaff?.labId) {
+        setLabId(parsedStaff.labId);
+      }
+    } catch (error) {
+      router.replace("/");
+      return;
+    }
+
     async function loadPatients() {
       try {
-        const res = await fetch("/api/patients");
+        const url = parsedStaff?.labId ? `/api/patients?labId=${encodeURIComponent(parsedStaff.labId)}` : "/api/patients";
+        const res = await fetch(url);
         const data = await res.json();
 
         if (!res.ok) {
@@ -87,16 +112,17 @@ export default function StaffDashboard() {
         const res = await fetch("/api/labs");
         if (res.ok) {
           const data = await res.json();
-          const activeLab = data.labs?.find(l => l.status === "Active") || data.labs?.[0];
+          const requestedLabId = parsedStaff?.labId;
+          const activeLab = data.labs?.find((l) => l.id === requestedLabId) || data.labs?.find((l) => l.status === "Active") || data.labs?.[0];
           if (activeLab) {
             const b = activeLab.branding || {};
             const nextBranding = {
               labId: activeLab.id,
-              labName: b.labName || activeLab.name || "AL-JANNAT",
-              logoUrl: b.logoUrl || "/Al-jannat.png",
+              labName: b.labName || activeLab.name || "",
+              logoUrl: b.logoUrl || "/",
               tagline: b.tagline || "Clinical Laboratory",
-              address: b.address || activeLab.address || "171-D Block, Near Faysal Bank, Thana Bazar, Arifwala",
-              phone: b.phone || activeLab.phone || "0300-6943193",
+              address: b.address || activeLab.address || "",
+              phone: b.phone || activeLab.phone || "  ",
               primaryColor: b.primaryColor || "#004d26",
               accentColor: b.accentColor || "#FBBF24",
               dashboardMenuOrder: b.dashboardMenuOrder || ["Overview", "New Registration", "Revenue", "Reports"],
@@ -155,6 +181,7 @@ export default function StaffDashboard() {
 
     const queueRecord = {
       id: generatedLabId,
+      labId: labId || "",
       patient: capitalizedName,
       contact: regContact,
       age: regAge || "N/A",
@@ -170,6 +197,7 @@ export default function StaffDashboard() {
 
     const advanceRecord = currentAdvancePaid > 0 ? {
       id: createPaymentId("AP", advancePayments),
+      labId: labId || "",
       patientName: capitalizedName,
       patientId: generatedLabId,
       amount: currentAdvancePaid,
@@ -182,6 +210,7 @@ export default function StaffDashboard() {
 
     const pendingRecord = regPendingBalance > 0 ? {
       id: createPaymentId("PP", pendingPayments),
+      labId: labId || "",
       patientName: capitalizedName,
       patientId: generatedLabId,
       amount: regPendingBalance,

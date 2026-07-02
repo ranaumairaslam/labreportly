@@ -6,11 +6,19 @@ function cleanDocument(document) {
   return rest;
 }
 
-export async function GET() {
+export async function GET(req) {
   try {
     await ensureDatabaseIndexes();
     const { reports } = await getCollections();
-    const docs = await reports.find({}).sort({ createdAt: -1 }).toArray();
+    const url = new URL(req.url);
+    const reportNumber = url.searchParams.get("reportNumber");
+    const labId = url.searchParams.get("labId");
+
+    const filter = {};
+    if (reportNumber) filter.reportNumber = reportNumber;
+    if (labId) filter.labId = labId;
+
+    const docs = await reports.find(filter).sort({ createdAt: -1 }).toArray();
     return NextResponse.json({ reports: docs.map(cleanDocument) });
   } catch (error) {
     console.error("GET /api/reports error:", error);
@@ -35,6 +43,7 @@ export async function POST(req) {
       registeredAt,
       labId,
       tests,
+      results,
       status,
       findings,
       specialistReferral,
@@ -48,6 +57,8 @@ export async function POST(req) {
     }
 
     const now = new Date();
+    const storedResults = Array.isArray(results) ? results : (Array.isArray(tests) ? tests : []);
+
     const result = await reports.insertOne({
       reportNumber,
       patientId,
@@ -59,7 +70,7 @@ export async function POST(req) {
       pendingBalance: pendingBalance || null,
       registeredAt: registeredAt || null,
       labId: labId || "default-lab",
-      tests: tests || [],
+      results: storedResults,
       status: status || "Completed",
       findings,
       specialistReferral: specialistReferral || null,
