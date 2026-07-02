@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ClipboardPlus, FileText, LogOut, Menu, Plus, Search, X } from "lucide-react";
+import { ClipboardPlus, FileText, LogOut, Menu, Plus, Search, Settings, X } from "lucide-react";
+import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
+import { readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
 
 function createPaymentId(prefix, existingPayments = []) {
   let id;
@@ -39,15 +42,20 @@ function getTemplateHref(patient) {
   return `/template?${params.toString()}`;
 }
 
+
+
 export default function StaffDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("Registration");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
+  const [branding, setBranding] = useState(readStoredBranding);
   const [patientSearch, setPatientSearch] = useState("");
+  const [labId, setLabId] = useState("");
   const [testQueueData, setTestQueueData] = useState([]);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
-
   const [regName, setRegName] = useState("");
   const [regContact, setRegContact] = useState("");
   const [regAge, setRegAge] = useState("");
@@ -59,9 +67,31 @@ export default function StaffDashboard() {
   const regPendingBalance = Math.max(0, (parseInt(regTotalBill) || 0) - (parseInt(regAdvancePaid) || 0));
 
   useEffect(() => {
+    const storedStaff = typeof window !== "undefined" ? window.localStorage.getItem("staff_profile") : null;
+    if (!storedStaff) {
+      router.replace("/");
+      return;
+    }
+
+    let parsedStaff;
+    try {
+      parsedStaff = JSON.parse(storedStaff);
+      if (parsedStaff?.role !== "Staff") {
+        router.replace("/");
+        return;
+      }
+      if (parsedStaff?.labId) {
+        setLabId(parsedStaff.labId);
+      }
+    } catch (error) {
+      router.replace("/");
+      return;
+    }
+
     async function loadPatients() {
       try {
-        const res = await fetch("/api/patients");
+        const url = parsedStaff?.labId ? `/api/patients?labId=${encodeURIComponent(parsedStaff.labId)}` : "/api/patients";
+        const res = await fetch(url);
         const data = await res.json();
 
         if (!res.ok) {
@@ -77,13 +107,53 @@ export default function StaffDashboard() {
       }
     }
 
+    async function loadBranding() {
+      try {
+        const res = await fetch("/api/labs");
+        if (res.ok) {
+          const data = await res.json();
+          const requestedLabId = parsedStaff?.labId;
+          const activeLab = data.labs?.find((l) => l.id === requestedLabId) || data.labs?.find((l) => l.status === "Active") || data.labs?.[0];
+          if (activeLab) {
+            const b = activeLab.branding || {};
+            const nextBranding = {
+              labId: activeLab.id,
+              labName: b.labName || activeLab.name || "",
+              logoUrl: b.logoUrl || "/",
+              tagline: b.tagline || "Clinical Laboratory",
+              address: b.address || activeLab.address || "",
+              phone: b.phone || activeLab.phone || "  ",
+              primaryColor: b.primaryColor || "#004d26",
+              accentColor: b.accentColor || "#FBBF24",
+              dashboardMenuOrder: b.dashboardMenuOrder || ["Overview", "New Registration", "Revenue", "Reports"],
+              staffMenuOrder: b.staffMenuOrder || ["Registration", "Report Generated"],
+            };
+            setBranding(nextBranding);
+            window.localStorage.setItem("lab_dashboard_branding", JSON.stringify(nextBranding));
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch branding from server", err);
+      }
+    }
+
     loadPatients();
+    loadBranding();
   }, []);
 
-  const menuItems = [
+  const baseMenuItems = [
     { name: "Registration", icon: ClipboardPlus },
     { name: "Report Generated", icon: FileText },
   ];
+  const menuItems = (branding.staffMenuOrder || [])
+    .map((name) => baseMenuItems.find((item) => item.name === name))
+    .filter(Boolean)
+    .concat(baseMenuItems.filter((item) => !(branding.staffMenuOrder || []).includes(item.name)));
+
+  const handleBrandingSave = (nextBranding) => {
+    setBranding(nextBranding);
+    storeBranding(nextBranding);
+  };
 
   const todayDate = getLocalDateString();
   const todaysPatients = testQueueData.filter((patient) => patient.registeredAt === todayDate);
@@ -111,6 +181,7 @@ export default function StaffDashboard() {
 
     const queueRecord = {
       id: generatedLabId,
+      labId: labId || "",
       patient: capitalizedName,
       contact: regContact,
       age: regAge || "N/A",
@@ -126,6 +197,7 @@ export default function StaffDashboard() {
 
     const advanceRecord = currentAdvancePaid > 0 ? {
       id: createPaymentId("AP", advancePayments),
+      labId: labId || "",
       patientName: capitalizedName,
       patientId: generatedLabId,
       amount: currentAdvancePaid,
@@ -138,6 +210,7 @@ export default function StaffDashboard() {
 
     const pendingRecord = regPendingBalance > 0 ? {
       id: createPaymentId("PP", pendingPayments),
+      labId: labId || "",
       patientName: capitalizedName,
       patientId: generatedLabId,
       amount: regPendingBalance,
@@ -387,14 +460,27 @@ export default function StaffDashboard() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden font-sans">
-      <aside className="hidden lg:flex flex-col w-64 bg-[#004d26] text-white border-r border-emerald-900 z-30 transition-all duration-300">
+      {isCustomizerOpen && (
+        <DashboardCustomizer
+          open={isCustomizerOpen}
+          onClose={() => setIsCustomizerOpen(false)}
+          branding={branding}
+          onSave={handleBrandingSave}
+          menuKey="staffMenuOrder"
+          menuItems={baseMenuItems}
+        />
+      )}
+
+      <aside className="hidden lg:flex flex-col w-64 text-white border-r border-emerald-900 z-30 transition-all duration-300" style={{ backgroundColor: branding.primaryColor }}>
         <div className="p-1 border-b border-emerald-900 flex items-center">
-          <div className="w-22 h-22 flex shadow-inner overflow-hidden">
-            <Image src="/Al-jannat.png" alt="Al-Jannat logo" width={100} height={100} className="h-full w-full object-contain p-1" />
+          <div className="mx-2 my-2 flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white shrink-0 shadow-md">
+            {branding.logoUrl ? (
+              <Image src={branding.logoUrl} alt={`${branding.labName} logo`} width={56} height={56} className="h-full w-full object-cover" unoptimized />
+            ) : null}
           </div>
           <div>
-            <h1 className="font-black text-sm tracking-wider uppercase text-yellow-400">Al-Jannat</h1>
-            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest">STAFF DESK</p>
+            <h1 className="font-black text-sm tracking-wider uppercase" style={{ color: branding.accentColor }}>{branding.labName}</h1>
+            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest uppercase">{branding.tagline}</p>
           </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
@@ -409,6 +495,7 @@ export default function StaffDashboard() {
                     ? "bg-yellow-400 text-[#004d26] shadow-md font-bold scale-[1.02]"
                     : "text-emerald-100 hover:bg-emerald-800/60 hover:text-white"
                 }`}
+                style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
               >
                 <Icon className="h-4 w-4" />
                 {item.name}
@@ -416,6 +503,16 @@ export default function StaffDashboard() {
             );
           })}
         </nav>
+        <div className="px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => setIsCustomizerOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800/60 hover:text-white transition-all"
+          >
+            <Settings className="h-4 w-4" />
+            Edit Dashboard
+          </button>
+        </div>
         <div className="p-4 border-t border-emerald-900 bg-[#003d1e]">
           <div className="flex items-center gap-3 p-2 rounded-lg bg-emerald-950/40">
             <div className="w-8 h-8 rounded-full bg-yellow-400 text-[#004d26] flex items-center justify-center font-bold text-xs">ST</div>
@@ -429,11 +526,15 @@ export default function StaffDashboard() {
 
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 lg:hidden animate-in fade-in duration-200">
-          <aside className="w-64 bg-[#004d26] text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200">
+          <aside className="w-64 text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200" style={{ backgroundColor: branding.primaryColor }}>
             <div className="p-6 border-b border-emerald-900 flex justify-between items-center">
               <div className="flex items-center gap-3">
-                <Image src="/Al-jannat.png" alt="Al-Jannat logo" width={44} height={44} className="object-contain" />
-                <span className="font-bold text-yellow-400">Al-Jannat</span>
+                <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center overflow-hidden border border-white/20 shrink-0 shadow-sm">
+                  {branding.logoUrl ? (
+                    <Image src={branding.logoUrl} alt={`${branding.labName} logo`} width={44} height={44} className="h-full w-full object-cover" unoptimized />
+                  ) : null}
+                </div>
+                <span className="font-bold" style={{ color: branding.accentColor }}>{branding.labName}</span>
               </div>
               <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(false)} className="text-white hover:bg-emerald-800">
                 <X className="w-5 h-5" />
@@ -452,6 +553,7 @@ export default function StaffDashboard() {
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm ${
                       activeTab === item.name ? "bg-yellow-400 text-[#004d26] font-bold" : "text-emerald-100 hover:bg-emerald-800"
                     }`}
+                    style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
                   >
                     <Icon className="h-4 w-4" />
                     {item.name}
@@ -459,6 +561,19 @@ export default function StaffDashboard() {
                 );
               })}
             </nav>
+            <div className="px-4 pb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCustomizerOpen(true);
+                  setIsMobileSidebarOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800"
+              >
+                <Settings className="h-4 w-4" />
+                Edit Dashboard
+              </button>
+            </div>
           </aside>
         </div>
       )}
@@ -471,13 +586,13 @@ export default function StaffDashboard() {
             </Button>
             <div>
               <p className="text-xs font-bold text-slate-700">Staff Dashboard</p>
-              <p className="text-[10px] text-slate-400 font-semibold">Patient registration and report generation</p>
+              <p className="text-[10px] text-slate-400 font-semibold">{branding.labName} patient registration and report generation</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden md:block">
-              <p className="text-xs font-bold text-slate-700">Thana Bazar, Arifwala</p>
-              <p className="text-[10px] text-slate-400 font-semibold">Cell: 0300-6943193</p>
+              <p className="text-xs font-bold text-slate-700">{branding.address}</p>
+              <p className="text-[10px] text-slate-400 font-semibold">Cell: {branding.phone}</p>
             </div>
             <Button asChild variant="outline" className="border-slate-300 text-slate-700">
               <Link href="/">

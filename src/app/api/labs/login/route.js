@@ -29,6 +29,9 @@ export async function POST(req) {
         email: lab.email,
         owner: lab.owner || "N/A",
         status: lab.status,
+        branding: lab.branding || null,
+        address: lab.address || "",
+        phone: lab.phone || "",
       },
     });
   } catch (error) {

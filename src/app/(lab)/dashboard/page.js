@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { FileText, Menu, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { FileText, Menu, Plus, Printer, Search, Settings, Trash2, X } from "lucide-react";
+import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
+import { readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
 
 
 function createPaymentId(prefix, existingPayments = []) {
@@ -43,7 +45,14 @@ function formatPKR(value) {
 export default function Home() {
   const [activeTab, setActiveTab] = useState("Overview");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
+  const [branding, setBranding] = useState(readStoredBranding);
   const [patientSearch, setPatientSearch] = useState("");
+  const [isStaffFormOpen, setIsStaffFormOpen] = useState(false);
+  const [staffForm, setStaffForm] = useState({ name: "", email: "", password: "", role: "Staff" });
+  const [isCreatingStaff, setIsCreatingStaff] = useState(false);
+  const [labStaff, setLabStaff] = useState([]);
+  const [currentLabId, setCurrentLabId] = useState("");
   
   // Registration Form States
   const [regName, setRegName] = useState("");
@@ -69,11 +78,13 @@ export default function Home() {
 
   // Core system active dynamic test queue arrays
   const [testQueueData, setTestQueueData] = useState([]);
+  const [reportsList, setReportsList] = useState([]);
 
   useEffect(() => {
     async function loadPatients() {
       try {
-        const res = await fetch("/api/patients");
+        const url = currentLabId ? `/api/patients?labId=${encodeURIComponent(currentLabId)}` : "/api/patients";
+        const res = await fetch(url);
         const data = await res.json();
         if (!res.ok) {
           console.warn(data.message || "Could not load patients.");
@@ -86,8 +97,66 @@ export default function Home() {
         console.warn("Patients API is unavailable. Showing local demo data.", err);
       }
     }
+
+    async function loadLabContext() {
+      try {
+        const storedLab = typeof window !== "undefined" ? window.localStorage.getItem("lab_profile") : null;
+        let resolvedLabId = "";
+
+        if (storedLab) {
+          const parsed = JSON.parse(storedLab);
+          if (parsed?.id) {
+            resolvedLabId = parsed.id;
+          }
+        }
+
+        const res = await fetch("/api/labs");
+        if (!res.ok) {
+          if (resolvedLabId) setCurrentLabId(resolvedLabId);
+          return;
+        }
+
+        const data = await res.json();
+        const lab = data.labs?.find((item) => item.id === resolvedLabId) || data.labs?.find((item) => item.status === "Active") || data.labs?.[0] || null;
+        if (lab?.id) {
+          setCurrentLabId(lab.id);
+        } else if (resolvedLabId) {
+          setCurrentLabId(resolvedLabId);
+        }
+      } catch (err) {
+        console.warn("Could not load lab context", err);
+      }
+    }
+
+    async function loadStaffAccounts() {
+      if (!currentLabId) return;
+      try {
+        const res = await fetch(`/api/staff?labId=${encodeURIComponent(currentLabId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setLabStaff(data.staff || []);
+      } catch (err) {
+        console.warn("Staff accounts API is unavailable.", err);
+      }
+    }
+
+    async function loadReports() {
+      if (!currentLabId) return;
+      try {
+        const res = await fetch(`/api/reports?labId=${encodeURIComponent(currentLabId)}`);
+        const data = await res.json();
+        if (!res.ok) return;
+        setReportsList(data.reports || []);
+      } catch (err) {
+        console.warn("Could not load saved reports", err);
+      }
+    }
+
     loadPatients();
-  }, []);
+    loadLabContext();
+    loadStaffAccounts();
+    loadReports();
+  }, [currentLabId]);
 
   // Selected patient for interactive report generator modal
   const [selectedReportPatient, setSelectedReportPatient] = useState(null);
@@ -95,12 +164,22 @@ export default function Home() {
   const [isReportSaving, setIsReportSaving] = useState(false);
 
   // Menu items with icons
-  const menuItems = [
+  const baseMenuItems = [
     { name: "Overview", icon: "📊" },
     { name: "New Registration", icon: "📝" },
     { name: "Revenue", icon: "💰" },
     { name: "Reports", icon: "📈" },
   ];
+
+  const menuItems = (branding.dashboardMenuOrder || [])
+    .map((name) => baseMenuItems.find((item) => item.name === name))
+    .filter(Boolean)
+    .concat(baseMenuItems.filter((item) => !(branding.dashboardMenuOrder || []).includes(item.name)));
+
+  const handleBrandingSave = (nextBranding) => {
+    setBranding(nextBranding);
+    storeBranding(nextBranding);
+  };
 
   // Stats computation parameters
   const todayDate = getLocalDateString();
@@ -133,15 +212,17 @@ export default function Home() {
       return;
     }
 
-    const nextIdNumber = testQueueData.length + 1;
-    const generatedLabId = `#01/${nextIdNumber < 10 ? "0" + nextIdNumber : nextIdNumber}`;
+    const generatedLabId = `#01/${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, "0")}`;
     const capitalizedName = regName.toUpperCase();
-    const currentBillTotal = parseInt(regTotalBill) || 0;
-    const currentAdvancePaid = parseInt(regAdvancePaid) || 0;
+    const currentBillTotal = parseInt(regTotalBill, 10) || 0;
+    const currentAdvancePaid = parseInt(regAdvancePaid, 10) || 0;
 
     // 1. Append directly to active operating laboratory grid queue
     const queueRecord = {
       id: generatedLabId,
+      labId: currentLabId || null,
       patient: capitalizedName,
       contact: regContact,
       age: regAge || "N/A",
@@ -191,23 +272,26 @@ export default function Home() {
         return;
       }
 
-      setTestQueueData([...testQueueData, queueRecord]);
+      setTestQueueData((prev) => [...prev, queueRecord]);
 
       // 2. Automated Financial processing tracking based on pricing attributes configured
       // If there is any advance deposited, log the advance structure immediately
       if (advanceRecord) {
-        setAdvancePayments(prev => [...prev, advanceRecord]);
+        setAdvancePayments((prev) => [...prev, advanceRecord]);
       }
 
       // If an outstanding balance remains, link a target accounts receivable entity automatically
       if (pendingRecord) {
-        setPendingPayments(prev => [...prev, pendingRecord]);
+        setPendingPayments((prev) => [...prev, pendingRecord]);
       }
 
       toast.success(data.databaseConnected === false
         ? `Registered ${generatedLabId} in demo mode.`
         : `Registered! Linked ${generatedLabId} successfully to MongoDB.`
       );
+      
+      // Automatically switch to the live queue to show the newly registered patient.
+      setActiveTab("Test Queue");
       
       // Purge input states back to initialization points safely
       setRegName("");
@@ -216,7 +300,6 @@ export default function Home() {
       setRegTests("");
       setRegTotalBill("");
       setRegAdvancePaid("");
-      setActiveTab("Overview");
     } catch (err) {
       console.warn("Patient registration request failed.", err);
       toast.error("Could not register patient. Check database connection.");
@@ -464,6 +547,46 @@ export default function Home() {
     }
   };
 
+  const handleCreateStaff = async (e) => {
+    e.preventDefault();
+    if (!staffForm.name || !staffForm.email || !staffForm.password) {
+      toast.error("Please fill in the staff name, email, and password.");
+      return;
+    }
+
+    if (!currentLabId) {
+      toast.error("Lab context is unavailable. Please log in again.");
+      return;
+    }
+
+    setIsCreatingStaff(true);
+    try {
+      const res = await fetch("/api/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...staffForm,
+          labId: currentLabId,
+          requesterRole: "LabAdmin",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Could not create staff account.");
+      }
+
+      setLabStaff((prev) => [data.staff, ...prev]);
+      setStaffForm({ name: "", email: "", password: "", role: "Staff" });
+      setIsStaffFormOpen(false);
+      toast.success(`Staff account for ${data.staff.email} created successfully.`);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Could not create staff account.");
+    } finally {
+      setIsCreatingStaff(false);
+    }
+  };
+
   const handleDeletePatient = async (patientId) => {
     const confirmed = window.confirm("Delete this patient record from the database?");
     if (!confirmed) return;
@@ -568,13 +691,54 @@ export default function Home() {
                 <h2 className="text-3xl font-bold text-slate-800">Dashboard Overview</h2>
                 <p className="text-slate-500 text-sm mt-1">Welcome back, Admin Staff. Here&apos;s your lab status.</p>
               </div>
-              <div className="flex gap-3 w-full md:w-auto">
+              <div className="flex flex-wrap gap-3 w-full md:w-auto">
                 <Button onClick={() => setActiveTab("New Registration")} className="flex-1 md:flex-none bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
                   <Plus className="w-4 h-4 mr-2" />
                   New Patient
                 </Button>
+                <Button onClick={() => setIsStaffFormOpen((prev) => !prev)} variant="outline" className="border-slate-300 text-slate-700">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Staff
+                </Button>
               </div>
             </div>
+
+            {isStaffFormOpen && (
+              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">Create Staff Dashboard Account</h3>
+                    <p className="text-sm text-slate-500">This will create a unique email and password for a new staff dashboard login tied to your lab.</p>
+                  </div>
+                  <Button type="button" variant="ghost" onClick={() => setIsStaffFormOpen(false)} className="text-slate-500 hover:text-slate-700">
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+                <form onSubmit={handleCreateStaff} className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Staff Name</label>
+                    <Input value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} placeholder="e.g. Ali Khan" required />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Email</label>
+                    <Input type="email" value={staffForm.email} onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })} placeholder="staff@yourlab.com" required />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
+                    <Input type="password" value={staffForm.password} onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })} placeholder="Create a secure password" required />
+                  </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Role</label>
+                    <Input value={staffForm.role} onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value })} placeholder="Staff" />
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    <Button type="submit" disabled={isCreatingStaff} className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
+                      {isCreatingStaff ? "Creating..." : "Create Staff Account"}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            )}
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -700,6 +864,30 @@ export default function Home() {
               )}
             </div>
 
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-800">Lab Staff Accounts</h3>
+                  <p className="text-sm text-slate-500">Accounts created here can use the staff dashboard login.</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {labStaff.length ? labStaff.map((staff) => (
+                  <div key={staff.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-800">{staff.name}</p>
+                        <p className="text-sm text-slate-500">{staff.email}</p>
+                      </div>
+                      <Badge className="bg-[#004d26] text-yellow-400 hover:bg-[#004d26]">{staff.role || "Staff"}</Badge>
+                    </div>
+                  </div>
+                )) : (
+                  <p className="text-sm text-slate-500">No staff accounts created yet.</p>
+                )}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {stats.map((stat, i) => (
                 <div key={i} className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 group">
@@ -763,12 +951,12 @@ export default function Home() {
               <div className="space-y-4">
                 <div className="bg-linear-to-br from-green-50 to-white rounded-xl shadow-sm border border-green-100 p-6">
                   <p className="text-green-600 text-xs font-semibold uppercase">Tests Completed</p>
-                  <h4 className="text-3xl font-bold text-green-700 mt-2">156</h4>
+                  <h4 className="text-3xl font-bold text-green-700 mt-2"></h4>
                   <p className="text-green-600 text-xs mt-2">This month</p>
                 </div>
                 <div className="bg-linear-to-br from-yellow-50 to-white rounded-xl shadow-sm border border-yellow-100 p-6">
                   <p className="text-yellow-600 text-xs font-semibold uppercase">Pending Review</p>
-                  <h4 className="text-3xl font-bold text-yellow-700 mt-2">12</h4>
+                  <h4 className="text-3xl font-bold text-yellow-700 mt-2"></h4>
                   <p className="text-yellow-600 text-xs mt-2">Requires attention</p>
                 </div>
               </div>
@@ -1170,57 +1358,45 @@ export default function Home() {
               <div className="p-5 border-b bg-slate-50/60 font-semibold text-slate-700 text-sm">
                 Active Patient Medical Records
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-wider border-b border-slate-100">
-                    <tr>
-                      <th className="px-6 py-4">Lab ID</th>
-                      <th className="px-6 py-4">Patient Name</th>
-                      <th className="px-6 py-4">Assigned Assays</th>
-                      <th className="px-6 py-4">Test Status</th>
-                      <th className="px-6 py-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {testQueueData.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-700">{row.id}</td>
-                        <td className="px-6 py-4 text-slate-600 font-medium">
-                          <Link
-                            href={`/template?patientId=${encodeURIComponent(row.id)}&patientName=${encodeURIComponent(row.patient)}&contact=${encodeURIComponent(row.contact || '')}&age=${encodeURIComponent(row.age || '')}&gender=${encodeURIComponent(row.gender || '')}&tests=${encodeURIComponent(row.tests || '')}&registeredAt=${encodeURIComponent(row.registeredAt || '')}`}
-                            className="text-[#004d26] hover:underline font-medium"
-                          >
-                            {row.patient}
-                          </Link>
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 text-xs">{row.tests}</td>
-                        <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end items-center gap-2">
-                            <Link
-                              href={`/template?patientId=${encodeURIComponent(row.id)}&patientName=${encodeURIComponent(row.patient)}&contact=${encodeURIComponent(row.contact || "")}&age=${encodeURIComponent(row.age || "")}&gender=${encodeURIComponent(row.gender || "")}&tests=${encodeURIComponent(row.tests || "")}&registeredAt=${encodeURIComponent(row.registeredAt || "")}`}
-                              className="inline-flex items-center text-[#004d26] hover:text-[#00361a] text-xs font-semibold"
-                            >
-                              <FileText className="w-4 h-4 mr-2" />
-                              View Report
-                            </Link>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              onClick={() => handleDeletePatient(row.id)}
-                              disabled={isReportSaving}
-                              className="text-red-600 hover:text-red-800 text-xs font-semibold"
-                            >
-                              <Trash2 className="w-4 h-4 mr-2" />
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-wider border-b border-slate-100">
+              <tr>
+                <th className="px-6 py-4">Report #</th>
+                <th className="px-6 py-4">Patient Name</th>
+                <th className="px-6 py-4">Generated</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {reportsList.map((rep) => (
+                <tr key={rep.reportNumber || rep.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-6 py-4 font-bold text-slate-700">{rep.reportNumber}</td>
+                  <td className="px-6 py-4 text-slate-600 font-medium">{rep.patientName}</td>
+                  <td className="px-6 py-4 text-slate-500 text-xs">{new Date(rep.createdAt || rep.generatedAt || rep.created_at || Date.now()).toLocaleString()}</td>
+                  <td className="px-6 py-4">{rep.status || "Completed"}</td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end items-center gap-2">
+                      <Link
+                        href={`/template?source=report&reportNumber=${encodeURIComponent(rep.reportNumber)}`}
+                        className="inline-flex items-center text-[#004d26] hover:text-[#00361a] text-xs font-semibold"
+                      >
+                        <FileText className="w-4 h-4 mr-2" />
+                        View Report
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {!reportsList.length && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">No saved reports yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
             </div>
 
             {/* Dynamic Modal Interface Sheet for generating medical document records */}
@@ -1287,21 +1463,33 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden font-sans">
+      {isCustomizerOpen && (
+        <DashboardCustomizer
+          open={isCustomizerOpen}
+          onClose={() => setIsCustomizerOpen(false)}
+          branding={branding}
+          onSave={handleBrandingSave}
+          menuKey="dashboardMenuOrder"
+          menuItems={baseMenuItems}
+        />
+      )}
+
       {/* SIDEBAR - DESKTOP */}
-      <aside className="hidden lg:flex flex-col w-64 bg-[#004d26] text-white border-r border-emerald-900 z-30 transition-all duration-300">
+      <aside className="hidden lg:flex flex-col w-64 text-white border-r border-emerald-900 z-30 transition-all duration-300" style={{ backgroundColor: branding.primaryColor }}>
         <div className="p-1 border-b border-emerald-900 flex items-center">
           <div className="w-22 h-22 flex  shadow-inner overflow-hidden">
             <Image
-              src="/Al-jannat.png"
-              alt="Al-Jannat logo"
+              src={branding.logoUrl}
+              alt={`${branding.labName} logo`}
               width={100}
               height={100}
               className="h-full w-full object-contain p-1"
+              unoptimized
             />
           </div>
           <div>
-            <h1 className="font-black text-sm tracking-wider uppercase text-yellow-400">Al-Jannat</h1>
-            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest">CLINICAL LAB</p>
+            <h1 className="font-black text-sm tracking-wider uppercase" style={{ color: branding.accentColor }}>{branding.labName}</h1>
+            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest uppercase">{branding.tagline}</p>
           </div>
         </div>
         <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
@@ -1314,12 +1502,23 @@ export default function Home() {
                   ? "bg-yellow-400 text-[#004d26] shadow-md font-bold scale-[1.02]"
                   : "text-emerald-100 hover:bg-emerald-800/60 hover:text-white"
               }`}
+              style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
             >
               <span className="text-base">{item.icon}</span>
               {item.name}
             </button>
           ))}
         </nav>
+        <div className="px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => setIsCustomizerOpen(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800/60 hover:text-white transition-all"
+          >
+            <Settings className="h-4 w-4" />
+            Edit Dashboard
+          </button>
+        </div>
         <div className="p-4 border-t border-emerald-900 bg-[#003d1e]">
           <div className="flex items-center gap-3 p-2 rounded-lg bg-emerald-950/40">
             <div className="w-8 h-8 rounded-full bg-yellow-400 text-[#004d26] flex items-center justify-center font-bold text-xs">AD</div>
@@ -1334,19 +1533,20 @@ export default function Home() {
       {/* SIDEBAR - MOBILE */}
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 lg:hidden animate-in fade-in duration-200">
-          <aside className="w-64 bg-[#004d26] text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200">
+          <aside className="w-64 text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200" style={{ backgroundColor: branding.primaryColor }}>
             <div className="p-6 border-b border-emerald-900 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-white rounded-md flex items-center justify-center overflow-hidden">
                   <Image
-                    src="/logo.png"
-                    alt="Al-Jannat logo"
+                    src={branding.logoUrl}
+                    alt={`${branding.labName} logo`}
                     width={36}
                     height={36}
                     className="h-full w-full object-contain p-1"
+                    unoptimized
                   />
                 </div>
-                <span className="font-bold text-yellow-400">Al-Jannat</span>
+                <span className="font-bold" style={{ color: branding.accentColor }}>{branding.labName}</span>
               </div>
               <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(false)} className="text-white hover:bg-emerald-800">
                 <X className="w-5 h-5" />
@@ -1360,12 +1560,26 @@ export default function Home() {
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm ${
                     activeTab === item.name ? "bg-yellow-400 text-[#004d26] font-bold" : "text-emerald-100 hover:bg-emerald-800"
                   }`}
+                  style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
                 >
                   <span>{item.icon}</span>
                   {item.name}
                 </button>
               ))}
             </nav>
+            <div className="px-4 pb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCustomizerOpen(true);
+                  setIsMobileSidebarOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800"
+              >
+                <Settings className="h-4 w-4" />
+                Edit Dashboard
+              </button>
+            </div>
           </aside>
         </div>
       )}
@@ -1384,8 +1598,8 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right hidden md:block">
-              <p className="text-xs font-bold text-slate-700">Thana Bazar, Arifwala</p>
-              <p className="text-[10px] text-slate-400 font-semibold">Cell: 0300-6943193</p>
+              <p className="text-xs font-bold text-slate-700">{branding.address}</p>
+              <p className="text-[10px] text-slate-400 font-semibold">Cell: {branding.phone}</p>
             </div>
           </div>
         </header>

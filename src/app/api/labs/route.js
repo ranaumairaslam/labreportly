@@ -8,6 +8,9 @@ function formatLab(lab) {
     owner: lab.owner || "N/A",
     email: lab.email,
     status: lab.status,
+    branding: lab.branding || null,
+    address: lab.address || "",
+    phone: lab.phone || "",
     date: new Date(lab.createdAt).toISOString().split("T")[0],
   };
 }
@@ -34,6 +37,8 @@ export async function POST(req) {
     const owner = body.owner || body.admin_name || body.owner;
     const email = body.email || body.admin_email;
     const password = body.password;
+    const address = body.address || "";
+    const phone = body.phone || "";
 
     if (!name || !email || !password) {
       return NextResponse.json({ message: "Missing required parameters (name, email, password)" }, { status: 400 });
@@ -51,6 +56,8 @@ export async function POST(req) {
       owner: owner || "N/A",
       email,
       password,
+      address,
+      phone,
       status: "Active",
       createdAt: now,
       updatedAt: now,
@@ -72,7 +79,7 @@ export async function PUT(req) {
     await ensureDatabaseIndexes();
     const { labs: labsCollection } = await getCollections();
     const body = await req.json();
-    const { id, status, name, owner, email, password } = body || {};
+    const { id, status, name, owner, email, password, branding, address, phone } = body || {};
 
     if (!id) {
       return NextResponse.json({ message: "Missing laboratory ID" }, { status: 400 });
@@ -89,6 +96,9 @@ export async function PUT(req) {
       ...(owner !== undefined && { owner }),
       ...(email !== undefined && { email }),
       ...(password !== undefined && { password }),
+      ...(branding !== undefined && { branding }),
+      ...(address !== undefined && { address }),
+      ...(phone !== undefined && { phone }),
       updatedAt: new Date(),
     };
 

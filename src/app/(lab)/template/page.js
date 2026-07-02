@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "sonner";
-import { Printer, X, Plus, Trash2, LayoutDashboard, FileText } from "lucide-react";
+import { Printer, X, Plus, Trash2, LayoutDashboard, FileText, ImagePlus, Save, Settings } from "lucide-react";
+import { normalizeBranding, readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
 
 const DEFAULT_REPORT_COLUMNS = [
   
@@ -148,10 +149,154 @@ function getInitialFormData(searchParams, reportTemplate) {
   };
 }
 
+function TemplateCustomizer({ open, branding, onClose, onSave }) {
+  const [draft, setDraft] = useState(() => normalizeBranding(branding));
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!open) return null;
+
+  const updateDraft = (field, value) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleLogoUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file for the report logo.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => updateDraft("logoUrl", reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const nextBranding = normalizeBranding(draft);
+    setIsSaving(true);
+    storeBranding(nextBranding);
+
+    try {
+      if (nextBranding.labId) {
+        const res = await fetch("/api/labs", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: nextBranding.labId,
+            name: nextBranding.labName,
+            branding: nextBranding,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Could not save template settings.");
+      }
+
+      onSave(nextBranding);
+      toast.success("Template settings saved.");
+      onClose();
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Could not save template settings.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-sm print:hidden">
+      <form onSubmit={handleSubmit} className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-200 bg-slate-50 px-6 py-5">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Edit Report Template</h2>
+            <p className="mt-1 text-xs text-slate-500">Customize report letterhead, logo, footer, colors, and signature label.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6">
+          <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mx-auto flex h-32 w-32 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {draft.logoUrl ? (
+                  <Image src={draft.logoUrl} alt={`${draft.labName} report logo`} width={128} height={128} className="h-full w-full object-contain p-2" unoptimized />
+                ) : (
+                  <ImagePlus className="h-10 w-10 text-slate-300" />
+                )}
+              </div>
+              <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100">
+                <ImagePlus className="h-4 w-4" />
+                Upload Logo
+                <input type="file" accept="image/*" className="sr-only" onChange={handleLogoUpload} />
+              </label>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">English Lab Name</label>
+                <input value={draft.labName} onChange={(e) => updateDraft("labName", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" required />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">English Tagline</label>
+                <input value={draft.tagline} onChange={(e) => updateDraft("tagline", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Urdu Lab Name</label>
+                <input value={draft.templateUrduName} onChange={(e) => updateDraft("templateUrduName", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" dir="rtl" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Urdu Tagline</label>
+                <input value={draft.templateUrduTagline} onChange={(e) => updateDraft("templateUrduTagline", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" dir="rtl" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Header Color</label>
+                <input type="color" value={draft.primaryColor} onChange={(e) => updateDraft("primaryColor", e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white p-1" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Accent Color</label>
+                <input type="color" value={draft.accentColor} onChange={(e) => updateDraft("accentColor", e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white p-1" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Signature Label</label>
+                <input value={draft.templateInchargeLabel} onChange={(e) => updateDraft("templateInchargeLabel", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Watermark Opacity</label>
+                <input type="range" min="0" max="0.2" step="0.01" value={draft.templateWatermarkOpacity} onChange={(e) => updateDraft("templateWatermarkOpacity", e.target.value)} className="h-10 w-full" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase text-slate-500">Footer Address Line</label>
+                <textarea value={draft.templateFooter} onChange={(e) => updateDraft("templateFooter", e.target.value)} rows="3" className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-700" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+          <button type="button" onClick={onClose} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-200">
+            Cancel
+          </button>
+          <button type="submit" disabled={isSaving} className="inline-flex items-center gap-2 rounded-lg bg-emerald-800 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-900 disabled:opacity-50">
+            {isSaving ? "Saving..." : <Save className="h-4 w-4" />}
+            Save Template
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [branding, setBranding] = useState(readStoredBranding);
+  const [isTemplateCustomizerOpen, setIsTemplateCustomizerOpen] = useState(false);
   const [reportTemplates, setReportTemplates] = useState(REPORT_TEMPLATES);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
   // Mode Selection: 'pdf' (Full letterhead) or 'print' (Pre-printed paper / Clear results)
@@ -203,6 +348,61 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
 
     loadReportTemplates();
 
+    return () => {
+      ignore = true;
+    };
+  }, [searchParams]);
+
+  // If opened as a saved report viewer (source=report), load the saved report from the DB
+  useEffect(() => {
+    let ignore = false;
+    async function loadSavedReport() {
+      const source = searchParams.get("source");
+      const reportNumber = searchParams.get("reportNumber") || searchParams.get("lastReportNumber");
+      if (source !== "report" || !reportNumber) return;
+
+      try {
+        const res = await fetch(`/api/reports?reportNumber=${encodeURIComponent(reportNumber)}`);
+        const data = await res.json();
+        if (!res.ok) {
+          console.warn(data.message || "Could not load saved report.");
+          return;
+        }
+
+        const report = (data.reports || [])[0];
+        if (!report) return;
+
+        // Populate form and test results from stored report
+        setFormData((prev) => ({
+          ...prev,
+          id: report.patientId || prev.id,
+          name: report.patientName || prev.name,
+          specimen: report.specimen || prev.specimen,
+          examRequired: report.examRequired || prev.examRequired,
+          categoryTitle: report.categoryTitle || prev.categoryTitle,
+          findings: report.findings || prev.findings,
+        }));
+
+        if (Array.isArray(report.results) && report.results.length) {
+          setTestResults(
+            report.results.map((r) => ({
+              isSection: false,
+              test: r.test || r.name || "",
+              result: r.result || r.value || "",
+              units: r.units || "",
+              normalValue: r.normalValue || "",
+            }))
+          );
+        }
+
+        // Switch to generated/print view
+        setIsGenerating(true);
+      } catch (err) {
+        console.error("Could not load saved report:", err);
+      }
+    }
+
+    loadSavedReport();
     return () => {
       ignore = true;
     };
@@ -265,9 +465,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         reportNumber,
         patientId,
         patientName: formData.name || "Unknown Patient",
-        labId: "default-lab",
+        labId: branding.labId || "default-lab",
         status: "Completed",
         templateMode, // Saves template configuration selection to dashboard dataset
+        templateBranding: branding,
         patientContact: searchParams?.get("contact") || null,
         patientAge: searchParams?.get("age") || null,
         patientGender: searchParams?.get("gender") || null,
@@ -349,10 +550,24 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     }
   };
 
+  const handleTemplateSave = (nextBranding) => {
+    setBranding(nextBranding);
+    storeBranding(nextBranding);
+  };
+
   // --- FORM VIEW (Edit Mode) ---
   if (!isGenerating) {
     return (
       <div className="w-full max-w-4xl mx-auto my-8 font-sans text-black px-4">
+        {isTemplateCustomizerOpen && (
+          <TemplateCustomizer
+            open={isTemplateCustomizerOpen}
+            branding={branding}
+            onClose={() => setIsTemplateCustomizerOpen(false)}
+            onSave={handleTemplateSave}
+          />
+        )}
+
         {/* Top bar with Dashboard Action */}
         <div className="flex justify-between items-center mb-4 px-2">
           <Button 
@@ -363,11 +578,22 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
             <LayoutDashboard className="w-4 h-4 mr-2 text-slate-600" />
             Dashboard
           </Button>
-          {onClose && (
-            <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-black transition-colors">
-              <X className="w-5 h-5 text-slate-600" />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsTemplateCustomizerOpen(true)}
+              className="border-slate-300 bg-white hover:bg-slate-100 text-slate-800"
+            >
+              <Settings className="w-4 h-4 mr-2 text-slate-600" />
+              Edit Template
+            </Button>
+            {onClose && (
+              <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg text-black transition-colors">
+                <X className="w-5 h-5 text-slate-600" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6 md:p-8">
@@ -534,6 +760,15 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   // --- PRINT / GENERATED VIEW (Strict 1-Page Layout Force Configuration) ---
   return (
     <div className="report-print-root w-full bg-slate-100 py-8 min-h-screen flex flex-col items-center select-text">
+      {isTemplateCustomizerOpen && (
+        <TemplateCustomizer
+          open={isTemplateCustomizerOpen}
+          branding={branding}
+          onClose={() => setIsTemplateCustomizerOpen(false)}
+          onSave={handleTemplateSave}
+        />
+      )}
+
       {/* Dynamic injection to control layout rendering profiles */}
       <style dangerouslySetInnerHTML={{__html: `
         @page {
@@ -585,13 +820,14 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           
           {/* Lab Watermark Background - ONLY visible in PDF mode */}
           {templateMode === "pdf" && (
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-[0.09] z-0">
+            <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0" style={{ opacity: Number(branding.templateWatermarkOpacity) || 0 }}>
               <Image
-                src="/Al-jannat.png"
+                src={branding.logoUrl}
                 alt=""
                 width={800}
                 height={800}
                 className="select-none object-contain"
+                unoptimized
               />
             </div>
           )}
@@ -605,28 +841,29 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   
   {/* Left Text - Aligned to Center */}
   <div className="text-left w-1/3">
-    <h1 className="text-[38px] tracking-tight text-[#0b832f]">Al-Jannat</h1>
-    <p className="text-[11px] font-semibold tracking-widest text-[#4a5568] ml-6.5">CLINICAL LABORATORY</p>
+    <h1 className="text-[38px] tracking-tight" style={{ color: branding.primaryColor }}>{branding.labName}</h1>
+    <p className="text-[11px] font-semibold tracking-widest text-[#4a5568] ml-6.5 uppercase">{branding.tagline}</p>
   </div>
   
   {/* Center Logo */}
   <div className="w-1/3 flex justify-center">
     <div className="w-40 h-40 flex items-center justify-center relative">
       <Image
-        src="/Al-jannat.png"
-        alt="Al-Jannat logo"
+        src={branding.logoUrl}
+        alt={`${branding.labName} logo`}
         fill
         className="object-contain"
         priority
+        unoptimized
       />
     </div>
   </div>
 
   {/* Right Text - Aligned to Center */}
   <div className="text-right w-1/3">
-    <h1 className="text-[52px] font-bold leading-tight text-[#0b832f]" style={{ fontFamily: 'Arial, sans-serif' }}>الجنت</h1>
+    <h1 className="text-[52px] font-bold leading-tight" style={{ color: branding.primaryColor, fontFamily: 'Arial, sans-serif' }}>{branding.templateUrduName}</h1>
     <p className="text-[20px] font-medium text-[#4a5568] mr-10.5" style={{ fontFamily: '"Jameel Noori Nastaleeq", "Urdu Typesetting", sans-serif' }}>
-      کلینیکل لیبارٹری
+      {branding.templateUrduTagline}
     </p>
   </div>
 </div>
@@ -753,14 +990,14 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           {/* Signature Clearance Area */}
           <div className="flex justify-end mb-8 print:mb-4">
             <div className="text-center">
-              <p className="text-[13px] font-bold border-t border-black/40 pt-1 px-4">Lab incharge</p>
+              <p className="text-[13px] font-bold border-t border-black/40 pt-1 px-4">{branding.templateInchargeLabel}</p>
             </div>
           </div>
 
           {/* Absolute Layout Address Banner Block - ONLY visible in PDF mode */}
           {templateMode === "pdf" && (
-            <div className="bg-[#0c3823] text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide mx-[-40px] mb-[-40px] print:mx-[-10mm] print:mb-[-8mm]">
-              171-D Block,Near Faysal Bank,Thana Bazar,Arifwala Cell:0300-6943193
+            <div className="text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide mx-[-40px] mb-[-40px] print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
+              {branding.templateFooter}
             </div>
           )}
         </div>
@@ -784,6 +1021,14 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         >
           <X className="w-4 h-4 mr-2 text-slate-600" /> 
           Edit Form
+        </Button>
+        <Button
+          onClick={() => setIsTemplateCustomizerOpen(true)}
+          variant="outline"
+          className="border-slate-300 rounded-full px-4 text-slate-800 bg-white hover:bg-slate-100"
+        >
+          <Settings className="w-4 h-4 mr-2 text-slate-600" />
+          Edit Template
         </Button>
         <Button 
           onClick={handlePrintReport} 

@@ -6,15 +6,18 @@ function cleanDocument(document) {
   return rest;
 }
 
-export async function GET() {
+export async function GET(req) {
   try {
     await ensureDatabaseIndexes();
     const collections = await getCollections();
+    const url = new URL(req.url);
+    const labId = url.searchParams.get("labId");
+    const filter = labId ? { labId } : {};
 
     const [patients, advancePayments, pendingPayments] = await Promise.all([
-      collections.patients.find({}).sort({ createdAt: 1 }).toArray(),
-      collections.advancePayments.find({}).sort({ createdAt: 1 }).toArray(),
-      collections.pendingPayments.find({}).sort({ createdAt: 1 }).toArray(),
+      collections.patients.find(filter).sort({ createdAt: 1 }).toArray(),
+      collections.advancePayments.find(filter).sort({ createdAt: 1 }).toArray(),
+      collections.pendingPayments.find(filter).sort({ createdAt: 1 }).toArray(),
     ]);
 
     return NextResponse.json({

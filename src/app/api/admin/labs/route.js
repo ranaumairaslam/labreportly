@@ -14,6 +14,9 @@ function formatLab(lab) {
     owner: lab.owner || "N/A",
     email: lab.email,
     status: lab.status,
+    branding: lab.branding || null,
+    address: lab.address || "",
+    phone: lab.phone || "",
     date: new Date(lab.createdAt).toISOString().split("T")[0],
   };
 }
@@ -86,7 +89,7 @@ export async function PUT(req) {
     await ensureDatabaseIndexes();
     const { labs: labsCollection } = await getCollections();
     const body = await req.json();
-    const { id, status, name, owner, email, password } = body || {};
+    const { id, status, name, owner, email, password, branding, address, phone } = body || {};
 
     if (!id) {
       return NextResponse.json({ message: "Missing laboratory ID" }, { status: 400 });
@@ -103,6 +106,9 @@ export async function PUT(req) {
       ...(owner !== undefined && { owner }),
       ...(email !== undefined && { email }),
       ...(password !== undefined && { password }),
+      ...(branding !== undefined && { branding }),
+      ...(address !== undefined && { address }),
+      ...(phone !== undefined && { phone }),
       updatedAt: new Date(),
     };
 
@@ -112,13 +118,46 @@ export async function PUT(req) {
       { returnDocument: "after" }
     );
 
-    if (!result.value) {
+    if (!result) {
       return NextResponse.json({ message: "Laboratory not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ message: "Laboratory updated successfully", lab: formatLab(result.value) });
+    return NextResponse.json({ message: "Laboratory updated successfully", lab: formatLab(result) });
   } catch (error) {
     console.error("PUT /api/admin/labs error:", error);
+    return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req) {
+  const token = getToken(req);
+  if (token !== ADMIN_TOKEN) return unauthorized();
+
+  try {
+    await ensureDatabaseIndexes();
+    const { labs: labsCollection, staffAccounts } = await getCollections();
+    const body = await req.json().catch(() => ({}));
+    const { id } = body || {};
+
+    if (!id) {
+      return NextResponse.json({ message: "Missing laboratory ID" }, { status: 400 });
+    }
+
+    const _id = toObjectId(id);
+    if (!_id) {
+      return NextResponse.json({ message: "Invalid laboratory ID" }, { status: 400 });
+    }
+
+    const deleteLabResult = await labsCollection.deleteOne({ _id });
+    if ((deleteLabResult.deletedCount || 0) === 0) {
+      return NextResponse.json({ message: "Laboratory not found" }, { status: 404 });
+    }
+
+    await staffAccounts.deleteMany({ labId: id });
+
+    return NextResponse.json({ message: "Laboratory deleted successfully" });
+  } catch (error) {
+    console.error("DELETE /api/admin/labs error:", error);
     return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
   }
 }
