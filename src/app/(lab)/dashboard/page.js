@@ -21,6 +21,10 @@ function createPaymentId(prefix, existingPayments = []) {
   return id;
 }
 
+function createUniquePatientId(prefix = "#01/") {
+  return `${prefix}${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
 function getLocalDateString(date = new Date()) {
   const pad = (value) => value.toString().padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -53,6 +57,7 @@ export default function Home() {
   const [isCreatingStaff, setIsCreatingStaff] = useState(false);
   const [labStaff, setLabStaff] = useState([]);
   const [currentLabId, setCurrentLabId] = useState("");
+  const [deletingPatientId, setDeletingPatientId] = useState(null);
   
   // Registration Form States
   const [regName, setRegName] = useState("");
@@ -212,9 +217,7 @@ export default function Home() {
       return;
     }
 
-    const generatedLabId = `#01/${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)
-      .toString()
-      .padStart(3, "0")}`;
+    const generatedLabId = createUniquePatientId("#01/");
     const capitalizedName = regName.toUpperCase();
     const currentBillTotal = parseInt(regTotalBill, 10) || 0;
     const currentAdvancePaid = parseInt(regAdvancePaid, 10) || 0;
@@ -588,10 +591,12 @@ export default function Home() {
   };
 
   const handleDeletePatient = async (patientId) => {
+    if (!patientId) return;
+
     const confirmed = window.confirm("Delete this patient record from the database?");
     if (!confirmed) return;
 
-    setIsReportSaving(true);
+    setDeletingPatientId(patientId);
     try {
       const res = await fetch(`/api/patients?id=${encodeURIComponent(patientId)}`, {
         method: "DELETE",
@@ -613,7 +618,7 @@ export default function Home() {
       console.error(error);
       toast.error(error.message || "Could not delete patient.");
     } finally {
-      setIsReportSaving(false);
+      setDeletingPatientId(null);
     }
   };
 
@@ -927,18 +932,27 @@ export default function Home() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {testQueueData.slice(-4).reverse().map((row, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors">
+                        <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 font-semibold text-slate-700">{row.id}</td>
                           <td className="px-6 py-4 text-slate-600">{row.patient}</td>
                           <td className="px-6 py-4 text-slate-600 text-xs">{row.tests}</td>
                           <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 flex items-center gap-2">
                             <Button 
                               variant="ghost" 
                               onClick={() => setActiveTab("Reports")}
                               className="text-blue-600 text-xs font-semibold hover:text-blue-800"
                             >
                               {row.action}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() => handleDeletePatient(row.id)}
+                              disabled={deletingPatientId === row.id}
+                              className="text-red-600 text-xs font-semibold hover:text-red-800"
+                            >
+                              <Trash2 className="w-4 h-4 mr-1" />
+                              {deletingPatientId === row.id ? "Deleting" : "Delete"}
                             </Button>
                           </td>
                         </tr>
@@ -1099,19 +1113,28 @@ export default function Home() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {testQueueData.map((row, i) => (
-                      <tr key={i} className="hover:bg-slate-50 transition-colors">
+                      <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 font-semibold text-slate-700">{row.id}</td>
                         <td className="px-6 py-4 text-slate-600">{row.patient}</td>
                         <td className="px-6 py-4 text-slate-600 text-xs">{row.tests}</td>
                         <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
                         <td className="px-6 py-4"><Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Normal</Badge></td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 flex items-center gap-2 justify-end">
                           <Button 
                             variant="ghost" 
                             onClick={() => setActiveTab(row.status === "Completed" ? "Reports" : "Result Entry")}
                             className="text-blue-600 text-xs font-semibold hover:text-blue-800"
                           >
                             {row.action}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            onClick={() => handleDeletePatient(row.id)}
+                            disabled={deletingPatientId === row.id}
+                            className="text-red-600 text-xs font-semibold hover:text-red-800"
+                          >
+                            <Trash2 className="w-4 h-4 mr-1" />
+                            {deletingPatientId === row.id ? "Deleting" : "Delete"}
                           </Button>
                         </td>
                       </tr>
@@ -1370,8 +1393,8 @@ export default function Home() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {reportsList.map((rep) => (
-                <tr key={rep.reportNumber || rep.id} className="hover:bg-slate-50/80 transition-colors">
+              {reportsList.map((rep, index) => (
+                <tr key={rep.reportNumber || rep.id || `report-${index}`} className="hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-4 font-bold text-slate-700">{rep.reportNumber}</td>
                   <td className="px-6 py-4 text-slate-600 font-medium">{rep.patientName}</td>
                   <td className="px-6 py-4 text-slate-500 text-xs">{new Date(rep.createdAt || rep.generatedAt || rep.created_at || Date.now()).toLocaleString()}</td>

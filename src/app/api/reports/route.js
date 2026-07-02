@@ -3,7 +3,10 @@ import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
 
 function cleanDocument(document) {
   const { _id, createdAt, updatedAt, ...rest } = document;
-  return rest;
+  return {
+    id: String(_id),
+    ...rest,
+  };
 }
 
 export async function GET(req) {

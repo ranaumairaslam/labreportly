@@ -29,7 +29,11 @@ const REPORT_TEMPLATES = [
 ];
 
 function cloneRows(rows) {
-  return rows.map((row) => ({ ...row, result: row.result || "" }));
+  return rows.map((row) => ({
+    ...row,
+    id: row.id || createUniqueRowId(),
+    result: row.result || "",
+  }));
 }
 
 function groupRowsIntoTables(rows, defaultColumns) {
@@ -131,6 +135,14 @@ function getReportTemplateFromExam(templates, examRequired) {
 }
 
 
+function createUniqueReportId() {
+  return `AUTO-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+}
+
+function createUniqueRowId() {
+  return `ROW-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+}
+
 function getInitialFormData(searchParams, reportTemplate) {
   const patientId = searchParams.get("patientId");
   const patientName = searchParams.get("patientName");
@@ -138,7 +150,7 @@ function getInitialFormData(searchParams, reportTemplate) {
   const registeredAt = searchParams.get("registeredAt");
 
   return {
-    id: patientId || "01/01",
+    id: patientId || createUniqueReportId(),
     date: registeredAt || "Thursday, May 14, 2026",
     name: patientName || "JAVAID",
     refBy: "Special thanks for the Doctor",
@@ -386,6 +398,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         if (Array.isArray(report.results) && report.results.length) {
           setTestResults(
             report.results.map((r) => ({
+              id: createUniqueRowId(),
               isSection: false,
               test: r.test || r.name || "",
               result: r.result || r.value || "",
@@ -433,11 +446,28 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   };
 
   const addTestRow = () => {
-    setTestResults([...testResults, { isSection: false, test: "", result: "", units: "", normalValue: "" }]);
+    setTestResults([
+      ...testResults,
+      {
+        id: createUniqueRowId(),
+        isSection: false,
+        test: "",
+        result: "",
+        units: "",
+        normalValue: "",
+      },
+    ]);
   };
 
   const addSectionRow = () => {
-    setTestResults([...testResults, { isSection: true, test: "New Section" }]);
+    setTestResults([
+      ...testResults,
+      {
+        id: createUniqueRowId(),
+        isSection: true,
+        test: "New Section",
+      },
+    ]);
   };
 
   const removeTestRow = (index) => {
@@ -457,8 +487,9 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
 
   const handlePrintReport = async () => {
     setIsReportSaving(true);
-    const reportNumber = formData.id || `AUTO-${Date.now()}`;
-    const patientId = formData.id || `AUTO-${Date.now()}`;
+    const uniqueId = createUniqueReportId();
+    const reportNumber = formData.id || uniqueId;
+    const patientId = formData.id || `PAT-${uniqueId}`;
 
     try {
       const reportPayload = {
@@ -682,7 +713,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse mb-4 min-w-[600px]">
+                <table className="w-full border-collapse mb-4 min-w-150">
                   <thead>
                     <tr className="bg-slate-200 text-sm text-black">
                       {reportColumns.map((column) => (
@@ -694,8 +725,8 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {testResults.map((row, i) => (
-                      <tr key={i} className={`text-sm ${row.isSection ? 'bg-slate-100' : ''}`}>
+                    {testResults.map((row) => (
+                      <tr key={row.id || createUniqueRowId()} className={`text-sm ${row.isSection ? 'bg-slate-100' : ''}`}>
                         {reportColumns.map((column) => (
                           <td key={column.key} className="border border-slate-300 p-1">
                             {column.key === "test" && (
@@ -721,7 +752,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                                 value={row.isTwoCol ? "" : (row.normalValue || "")}
                                 onChange={(e) => handleTestChange(i, "normalValue", e.target.value)}
                                 disabled={row.isTwoCol}
-                                className="w-full min-h-[32px] p-1 text-sm border-none shadow-none focus-visible:outline-none focus-visible:ring-1 resize-none disabled:bg-slate-100"
+                                className="w-full min-h-8 p-1 text-sm border-none shadow-none focus-visible:outline-none focus-visible:ring-1 resize-none disabled:bg-slate-100"
                               />
                             )}
                           </td>
@@ -925,10 +956,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {table.rows.map((result, i) => {
+                  {table.rows.map((result) => {
                     if (result.test === "Spacer") {
                       return (
-                        <tr key={i}>
+                        <tr key={result.id || createUniqueRowId()}>
                           <td colSpan={table.columns.length} className="h-3 border border-black bg-white"></td>
                         </tr>
                       );
@@ -936,7 +967,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                     
                     if (result.isSection) {
                       return (
-                        <tr key={i}>
+                        <tr key={result.id || createUniqueRowId()}>
                           <td colSpan={table.columns.length} className="p-1 border border-black font-bold bg-white text-left whitespace-pre-wrap">
                             {result.test}
                           </td>
@@ -946,7 +977,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
 
                     if (result.isTwoCol) {
                       return (
-                        <tr key={i}>
+                        <tr key={result.id || createUniqueRowId()}>
                           <td className="p-1 border border-black font-bold">
                             {result.test}
                           </td>
@@ -958,7 +989,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                     }
 
                     return (
-                      <tr key={i}>
+                      <tr key={result.id || createUniqueRowId()}>
                         {table.columns.map((column) => (
                           <td
                             key={column.key}
@@ -996,7 +1027,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
 
           {/* Absolute Layout Address Banner Block - ONLY visible in PDF mode */}
           {templateMode === "pdf" && (
-            <div className="text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide mx-[-40px] mb-[-40px] print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
+            <div className="text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide -mx-10 -mb-10 print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
               {branding.templateFooter}
             </div>
           )}
