@@ -93,8 +93,9 @@ export default function StaffDashboard() {
     }
 
     async function loadPatients() {
+      if (!parsedStaff?.labId) return;
       try {
-        const url = parsedStaff?.labId ? `/api/patients?labId=${encodeURIComponent(parsedStaff.labId)}` : "/api/patients";
+        const url = `/api/patients?labId=${encodeURIComponent(parsedStaff.labId)}`;
         const res = await fetch(url);
         const data = await res.json();
 

@@ -17,6 +17,10 @@ export async function GET(req) {
     const reportNumber = url.searchParams.get("reportNumber");
     const labId = url.searchParams.get("labId");
 
+    if (!reportNumber && !labId) {
+      return NextResponse.json({ reports: [] });
+    }
+
     const filter = {};
     if (reportNumber) filter.reportNumber = reportNumber;
     if (labId) filter.labId = labId;

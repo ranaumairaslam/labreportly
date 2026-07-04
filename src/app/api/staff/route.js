@@ -62,9 +62,13 @@ export async function GET(req) {
     await ensureDatabaseIndexes();
     const { searchParams } = new URL(req.url);
     const labId = searchParams.get("labId");
-    const { staffAccounts } = await getCollections();
 
-    const filter = labId ? { labId } : {};
+    if (!labId) {
+      return NextResponse.json({ staff: [] });
+    }
+
+    const { staffAccounts } = await getCollections();
+    const filter = { labId };
     const accounts = await staffAccounts.find(filter).sort({ createdAt: -1 }).toArray();
 
     return NextResponse.json({ staff: accounts.map((account) => ({

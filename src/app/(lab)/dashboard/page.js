@@ -478,6 +478,20 @@ export default function Home() {
       // Update local state to reflect saved report
       setTestQueueData((prev) => prev.map((p) => p.id === selectedReportPatient.id ? { ...p, status: "Completed", lastReportNumber: reportNumber, action: "View Report" } : p));
 
+      // Reflect the freshly saved report immediately in the Reports list
+      // (previously this relied solely on a refetch, so a newly created report
+      // could appear missing until the next reload)
+      setReportsList((prev) => [
+        {
+          reportNumber,
+          patientId: selectedReportPatient.id,
+          patientName: selectedReportPatient.patient,
+          status: "Completed",
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+
       toast.success("Report saved successfully and patient details updated.");
       setSelectedReportPatient(null);
       setReportFindings("");
@@ -541,6 +555,18 @@ export default function Home() {
       }
 
       setTestQueueData((prev) => prev.map((row) => row.id === patient.id ? { ...row, status: "Completed", lastReportNumber: reportNumber, action: "View Report" } : row));
+
+      setReportsList((prev) => [
+        {
+          reportNumber,
+          patientId: patient.id,
+          patientName: patient.patient,
+          status: "Completed",
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+
       toast.success("Report compiled and saved automatically.");
     } catch (error) {
       console.error(error);
@@ -683,6 +709,19 @@ export default function Home() {
     };
     const style = statusMap[status] || { bg: "bg-gray-100", text: "text-gray-800" };
     return <span className={`px-3 py-1 rounded-full text-xs font-semibold ${style.bg} ${style.text}`}>{status}</span>;
+  };
+
+  // Shared handler: takes a patient row and routes to the correct Reports action.
+  // - If already completed, jump straight to the Reports tab so they can view it.
+  // - If still pending/processing, open the compile modal for that patient right there.
+  // This is the fix: previously the Test Queue button pointed at a "Result Entry"
+  // tab that no longer exists, and the Overview button switched tabs without ever
+  // setting selectedReportPatient, so newly registered patients had no path into Reports.
+  const handleRowReportAction = (row) => {
+    setActiveTab("Reports");
+    if ((row.status || "").toLowerCase() !== "completed") {
+      setSelectedReportPatient(row);
+    }
   };
 
   // Content Switching Router
@@ -940,7 +979,7 @@ export default function Home() {
                           <td className="px-6 py-4 flex items-center gap-2">
                             <Button 
                               variant="ghost" 
-                              onClick={() => setActiveTab("Reports")}
+                              onClick={() => handleRowReportAction(row)}
                               className="text-blue-600 text-xs font-semibold hover:text-blue-800"
                             >
                               {row.action}
@@ -1122,7 +1161,7 @@ export default function Home() {
                         <td className="px-6 py-4 flex items-center gap-2 justify-end">
                           <Button 
                             variant="ghost" 
-                            onClick={() => setActiveTab(row.status === "Completed" ? "Reports" : "Result Entry")}
+                            onClick={() => handleRowReportAction(row)}
                             className="text-blue-600 text-xs font-semibold hover:text-blue-800"
                           >
                             {row.action}
@@ -1467,9 +1506,9 @@ export default function Home() {
                       <Button type="button" variant="outline" onClick={() => setSelectedReportPatient(null)} className="border-slate-300">
                         Cancel
                       </Button>
-                      <Button type="submit" className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
+                      <Button type="submit" disabled={isReportSaving} className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
                         <Printer className="w-4 h-4 mr-2" />
-                        Finalize Report
+                        {isReportSaving ? "Saving..." : "Finalize Report"}
                       </Button>
                     </div>
                   </form>
