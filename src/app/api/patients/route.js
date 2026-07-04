@@ -12,7 +12,23 @@ export async function GET(req) {
     const collections = await getCollections();
     const url = new URL(req.url);
     const labId = url.searchParams.get("labId");
-    const filter = labId ? { labId } : {};
+
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+    const ADMIN_TOKEN = process.env.SUPER_ADMIN_TOKEN || "super_admin_demo_token";
+
+    let filter;
+    if (labId) {
+      filter = { labId };
+    } else if (token && token === ADMIN_TOKEN) {
+      filter = {};
+    } else {
+      return NextResponse.json({
+        patients: [],
+        advancePayments: [],
+        pendingPayments: [],
+      });
+    }
 
     const [patients, advancePayments, pendingPayments] = await Promise.all([
       collections.patients.find(filter).sort({ createdAt: 1 }).toArray(),

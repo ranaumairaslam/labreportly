@@ -3,7 +3,10 @@ import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
 
 function cleanDocument(document) {
   const { _id, createdAt, updatedAt, ...rest } = document;
-  return rest;
+  return {
+    id: String(_id),
+    ...rest,
+  };
 }
 
 export async function GET(req) {
@@ -13,6 +16,10 @@ export async function GET(req) {
     const url = new URL(req.url);
     const reportNumber = url.searchParams.get("reportNumber");
     const labId = url.searchParams.get("labId");
+
+    if (!reportNumber && !labId) {
+      return NextResponse.json({ reports: [] });
+    }
 
     const filter = {};
     if (reportNumber) filter.reportNumber = reportNumber;

@@ -98,7 +98,12 @@ export default function SuperAdminDashboard() {
     async function loadPatients() {
       try {
         setPatientsLoading(true);
-        const res = await fetch("/api/patients");
+        const token = localStorage.getItem("super_admin_token");
+        const res = await fetch("/api/patients", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
         const data = await res.json();
         if (res.ok && data.patients) {
           setPatients(data.patients);

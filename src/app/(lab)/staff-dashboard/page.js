@@ -20,6 +20,10 @@ function createPaymentId(prefix, existingPayments = []) {
   return id;
 }
 
+function createUniquePatientId(prefix = "#01/") {
+  return `${prefix}${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
 function getLocalDateString(date = new Date()) {
   const pad = (value) => value.toString().padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
@@ -89,8 +93,9 @@ export default function StaffDashboard() {
     }
 
     async function loadPatients() {
+      if (!parsedStaff?.labId) return;
       try {
-        const url = parsedStaff?.labId ? `/api/patients?labId=${encodeURIComponent(parsedStaff.labId)}` : "/api/patients";
+        const url = `/api/patients?labId=${encodeURIComponent(parsedStaff.labId)}`;
         const res = await fetch(url);
         const data = await res.json();
 
@@ -173,8 +178,7 @@ export default function StaffDashboard() {
 
     setIsSaving(true);
 
-    const nextIdNumber = testQueueData.length + 1;
-    const generatedLabId = `#01/${nextIdNumber < 10 ? "0" + nextIdNumber : nextIdNumber}`;
+    const generatedLabId = createUniquePatientId("#01/");
     const capitalizedName = regName.toUpperCase();
     const currentBillTotal = parseInt(regTotalBill) || 0;
     const currentAdvancePaid = parseInt(regAdvancePaid) || 0;
@@ -421,8 +425,8 @@ export default function StaffDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredPatients.map((row) => (
-                <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
+              {filteredPatients.map((row, index) => (
+                <tr key={row.id ? `${row.id}-${index}` : `patient-${index}`} className="hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-4 font-bold text-slate-700">{row.id}</td>
                   <td className="px-6 py-4 text-slate-600 font-medium">
                     <Link href={getTemplateHref(row)} className="text-[#004d26] hover:underline font-medium">
