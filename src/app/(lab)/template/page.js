@@ -510,7 +510,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         specimen: formData.specimen,
         examRequired: formData.examRequired,
         categoryTitle: formData.categoryTitle,
-        findings: formData.findings || `No specific findings were entered for ${formData.name || "this patient"}. Review the test table for details.`,
+        findings: formData.findings || "",
         generatedAt: new Date().toISOString(),
         results: testResults.filter((row) => !row.isSection).map((row) => ({
           test: row.test,
@@ -1005,8 +1005,12 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
               </table>
             ))}
 
-            {/* Analytical Clinical Findings if populated */}
-            {formData.findings && (
+            {/* Analytical Clinical Findings if populated and not default placeholder/auto-generated message */}
+            {formData.findings && 
+             !formData.findings.includes("No specific findings were entered") && 
+             !formData.findings.includes("Report generated automatically") && 
+             formData.findings !== "Report generated." && 
+             formData.findings.trim() !== "" && (
               <div className="w-full p-2 border border-black text-xs font-sans mt-2">
                 <strong>Clinical Notes / Findings:</strong>
                 <p className="whitespace-pre-wrap mt-1 text-slate-700">{formData.findings}</p>
