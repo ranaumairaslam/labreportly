@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
@@ -725,7 +725,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {testResults.map((row) => (
+                    {testResults.map((row, i) => (
                       <tr key={row.id || createUniqueRowId()} className={`text-sm ${row.isSection ? 'bg-slate-100' : ''}`}>
                         {reportColumns.map((column) => (
                           <td key={column.key} className="border border-slate-300 p-1">
