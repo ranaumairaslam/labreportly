@@ -30,6 +30,25 @@ function getLocalDateString(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+function getPatientReportHref(patient) {
+  if ((patient.status || "").toLowerCase() === "completed" || Boolean(patient.lastReportNumber)) {
+    return `/template?source=report&reportNumber=${encodeURIComponent(patient.lastReportNumber)}`;
+  }
+  const params = new URLSearchParams({
+    source: "admin",
+    patientId: patient.id,
+    patientName: patient.patient,
+    contact: patient.contact || "",
+    age: patient.age || "",
+    gender: patient.gender || "",
+    tests: patient.tests || "",
+    registeredAt: patient.registeredAt || "",
+    totalBill: String(patient.totalBill || ""),
+    pendingBalance: String(patient.pendingBalance || ""),
+  });
+  return `/template?${params.toString()}`;
+}
+
 function formatNumber(value) {
   return value.toLocaleString("en-PK");
 }
@@ -978,11 +997,13 @@ export default function Home() {
                           <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
                           <td className="px-6 py-4 flex items-center gap-2">
                             <Button 
+                              asChild
                               variant="ghost" 
-                              onClick={() => handleRowReportAction(row)}
                               className="text-blue-600 text-xs font-semibold hover:text-blue-800"
                             >
-                              {row.action}
+                              <Link href={getPatientReportHref(row)}>
+                                {row.action}
+                              </Link>
                             </Button>
                             <Button
                               variant="ghost"
@@ -1160,11 +1181,13 @@ export default function Home() {
                         <td className="px-6 py-4"><Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Normal</Badge></td>
                         <td className="px-6 py-4 flex items-center gap-2 justify-end">
                           <Button 
+                            asChild
                             variant="ghost" 
-                            onClick={() => handleRowReportAction(row)}
                             className="text-blue-600 text-xs font-semibold hover:text-blue-800"
                           >
-                            {row.action}
+                            <Link href={getPatientReportHref(row)}>
+                              {row.action}
+                            </Link>
                           </Button>
                           <Button
                             variant="ghost"
