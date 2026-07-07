@@ -1,0 +1,3 @@
+- [ ] Add DELETE handler for reports in `src/app/api/reports/route.js`
+- [ ] Update lab dashboard delete handler in `src/app/(lab)/dashboard/page.js` to call the DELETE API and refresh state
+- [ ] Verify delete removes report from database and UI
