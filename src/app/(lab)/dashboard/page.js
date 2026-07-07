@@ -45,6 +45,8 @@ function getPatientReportHref(patient) {
     registeredAt: patient.registeredAt || "",
     totalBill: String(patient.totalBill || ""),
     pendingBalance: String(patient.pendingBalance || ""),
+    refDoctor: patient.refDoctor || "",
+    specimen: patient.specimen || "",
   });
   return `/template?${params.toString()}`;
 }
@@ -253,7 +255,10 @@ export default function Home() {
       totalBill: currentBillTotal,
       advancePaid: currentAdvancePaid,
       pendingBalance: regPendingBalance,
-      registeredAt: new Date().toISOString().split('T')[0],
+      registeredAt: regDateTime ? regDateTime.slice(0, 10) : new Date().toISOString().split('T')[0],
+      dateTime: regDateTime,
+      refDoctor: regRefDoctor,
+      specimen: regSpecimen,
       status: "Pending",
       action: "Collect Sample"
     };
@@ -322,6 +327,9 @@ export default function Home() {
       setRegTests("");
       setRegTotalBill("");
       setRegAdvancePaid("");
+      setRegRefDoctor("");
+      setRegSpecimen("");
+      setRegDateTime(new Date().toISOString().slice(0, 16));
     } catch (err) {
       console.warn("Patient registration request failed.", err);
       toast.error("Could not register patient. Check database connection.");
@@ -742,7 +750,33 @@ export default function Home() {
       setSelectedReportPatient(row);
     }
   };
+  const [regRefDoctor, setRegRefDoctor] = useState("");
+  const [regDateTime, setRegDateTime] = useState(new Date().toISOString().slice(0, 16)); // Defaults to current system time
+  const [regSpecimen, setRegSpecimen] = useState("");
 
+  // Contact lookup logic for existing patients
+  const cleanedContact = regContact.replace(/\D/g, "");
+  const matchingPatients = cleanedContact.length >= 7
+    ? testQueueData.filter((p) => p.contact && p.contact.replace(/\D/g, "") === cleanedContact)
+    : [];
+
+  // De-duplicate matching results by patient name (unique patient profile)
+  const uniqueMatchingPatients = [];
+  const seenNames = new Set();
+  for (const p of matchingPatients) {
+    const normName = (p.patient || "").trim().toUpperCase();
+    if (normName && !seenNames.has(normName)) {
+      seenNames.add(normName);
+      uniqueMatchingPatients.push(p);
+    }
+  }
+
+  const handleDeleteReport = (idOrReportNumber) => {
+  if (confirm("Are you sure you want to delete this report?")) {
+    // Add your API call or state update logic here
+    setReportsList(prev => prev.filter(rep => (rep.reportNumber !== idOrReportNumber && rep.id !== idOrReportNumber)));
+  }
+};
   // Content Switching Router
   const renderContent = () => {
     switch (activeTab) {
@@ -1038,117 +1072,191 @@ export default function Home() {
           </div>
         );
 
-      case "New Registration":
-        return (
-          <div className="space-y-6 animate-in fade-in duration-200">
+    case "New Registration":
+  return (
+    <div className="space-y-6 animate-in fade-in duration-200">
+      <div>
+        <h2 className="text-3xl font-bold text-slate-800">New Patient Registration</h2>
+        <p className="text-slate-500 text-sm mt-1">Register a new patient for laboratory tests and automate billing records.</p>
+      </div>
+      <div className="bg-white rounded-xl shadow-md border border-slate-100 p-8">
+        <form className="space-y-6" onSubmit={handlePatientRegistrationSubmit}>
+          
+          <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2">1. Patient Information</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h2 className="text-3xl font-bold text-slate-800">New Patient Registration</h2>
-              <p className="text-slate-500 text-sm mt-1">Register a new patient for laboratory tests and automate billing records.</p>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
+              <Input 
+                placeholder="Enter patient's full name" 
+                className="border-slate-300" 
+                value={regName}
+                onChange={(e) => setRegName(e.target.value)}
+                required 
+              />
             </div>
-            <div className="bg-white rounded-xl shadow-md border border-slate-100 p-8">
-              <form className="space-y-6" onSubmit={handlePatientRegistrationSubmit}>
-                
-                <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2">1. Patient Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
-                    <Input 
-                      placeholder="Enter patient's full name" 
-                      className="border-slate-300" 
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Contact Number</label>
-                    <Input 
-                      placeholder="+92 300 1234567" 
-                      className="border-slate-300" 
-                      value={regContact}
-                      onChange={(e) => setRegContact(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Age / DoB</label>
-                    <Input 
-                      placeholder="e.g. 45 Years" 
-                      className="border-slate-300" 
-                      value={regAge}
-                      onChange={(e) => setRegAge(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">Gender</label>
-                    <Select value={regGender} onValueChange={(val) => setRegGender(val)}>
-                      <SelectTrigger className="border-slate-300 text-black">
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent className="border-slate-300 text-black mt-5">
-                        <SelectItem value="male">Male</SelectItem>
-                        <SelectItem value="female">Female</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Contact Number</label>
+              <Input 
+                placeholder="+92 300 1234567" 
+                className="border-slate-300" 
+                value={regContact}
+                onChange={(e) => setRegContact(e.target.value)}
+                required 
+              />
+            </div>
+            {uniqueMatchingPatients.length > 0 && (
+              <div className="md:col-span-2 p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                    Matching Patient Profile(s) Found ({uniqueMatchingPatients.length})
+                  </h4>
+                  <p className="text-[10px] text-slate-500">Click a profile to auto-fill details</p>
                 </div>
-
-                <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2 pt-2">2. Clinical Parameters</h3>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Examination Required</label>
-                  <Input 
-                    placeholder="e.g. CBC, ESR, Blood Sugar" 
-                    className="border-slate-300" 
-                    value={regTests}
-                    onChange={(e) => setRegTests(e.target.value)}
-                    required 
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {uniqueMatchingPatients.map((patient) => (
+                    <button
+                      key={patient.id}
+                      type="button"
+                      onClick={() => {
+                        setRegName(patient.patient || "");
+                        setRegAge(patient.age || "");
+                        setRegGender(patient.gender || "male");
+                        if (patient.refDoctor) setRegRefDoctor(patient.refDoctor);
+                        if (patient.specimen) setRegSpecimen(patient.specimen);
+                        toast.success(`Profile loaded for ${patient.patient}`);
+                      }}
+                      className="flex flex-col text-left p-3 rounded-lg bg-white border border-emerald-100 hover:border-emerald-300 hover:shadow-xs transition-all duration-200 group"
+                    >
+                      <span className="font-bold text-slate-800 text-sm group-hover:text-emerald-700 transition-colors">
+                        {patient.patient}
+                      </span>
+                      <span className="text-xs text-slate-500 mt-1">
+                        {patient.gender ? patient.gender.toUpperCase() : "N/A"} | {patient.age || "N/A"}
+                      </span>
+                      {(patient.refDoctor || patient.specimen) && (
+                        <span className="text-[10px] text-slate-400 mt-1">
+                          {patient.refDoctor && `Doctor: ${patient.refDoctor}`}
+                          {patient.refDoctor && patient.specimen && " | "}
+                          {patient.specimen && `Specimen: ${patient.specimen}`}
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
-
-                <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2 pt-2">3. Integrated Billing & Finance Allocation</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Total Test Bill (PKR)</label>
-                    <Input 
-                      type="number" 
-                      placeholder="Total Bill Amount" 
-                      className="border-slate-300 bg-white font-semibold text-slate-800" 
-                      value={regTotalBill}
-                      onChange={(e) => setRegTotalBill(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Advance Received (PKR)</label>
-                    <Input 
-                      type="number" 
-                      placeholder="Amount Deposited Now" 
-                      className="border-slate-300 bg-white font-semibold text-emerald-800" 
-                      value={regAdvancePaid}
-                      onChange={(e) => setRegAdvancePaid(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Pending Balance (PKR)</label>
-                    <Input 
-                      type="text" 
-                      className="border-slate-300 bg-slate-100 font-bold text-red-700 cursor-not-allowed" 
-                      value={`PKR ${regPendingBalance.toLocaleString()}`}
-                      readOnly
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <Button type="submit" className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">Register Patient</Button>
-                  <Button type="button" variant="outline" onClick={() => setActiveTab("Overview")} className="border-slate-300">Cancel</Button>
-                </div>
-              </form>
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Age / DoB</label>
+              <Input 
+                placeholder="e.g. 45 Years" 
+                className="border-slate-300" 
+                value={regAge}
+                onChange={(e) => setRegAge(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Gender</label>
+              <Select value={regGender} onValueChange={(val) => setRegGender(val)}>
+                <SelectTrigger className="border-slate-300 text-black">
+                  <SelectValue placeholder="Select gender" />
+                </SelectTrigger>
+                <SelectContent className="border-slate-300 text-black mt-5">
+                  <SelectItem value="male">Male</SelectItem>
+                  <SelectItem value="female">Female</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {/* Added: Reference Doctor Field */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Reference Doctor</label>
+              <Input 
+                placeholder="e.g. Dr. Muhammad Ali or Self" 
+                className="border-slate-300" 
+                value={regRefDoctor}
+                onChange={(e) => setRegRefDoctor(e.target.value)}
+              />
+            </div>
+            {/* Added: Date and Time Field */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Registration Date & Time</label>
+              <Input 
+                type="datetime-local"
+                className="border-slate-300 text-slate-800" 
+                value={regDateTime}
+                onChange={(e) => setRegDateTime(e.target.value)}
+                required
+              />
             </div>
           </div>
-        );
 
+          <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2 pt-2">2. Clinical Parameters</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Examination Required</label>
+              <Input 
+                placeholder="e.g. CBC, ESR, Blood Sugar" 
+                className="border-slate-300" 
+                value={regTests}
+                onChange={(e) => setRegTests(e.target.value)}
+                required 
+              />
+            </div>
+            {/* Added: Specimen Name / Type Field */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Specimen Name / Type</label>
+              <Input 
+                placeholder="e.g. Serum, Whole Blood, Urine" 
+                className="border-slate-300" 
+                value={regSpecimen}
+                onChange={(e) => setRegSpecimen(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2 pt-2">3. Integrated Billing & Finance Allocation</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Total Test Bill (PKR)</label>
+              <Input 
+                type="number" 
+                placeholder="Total Bill Amount" 
+                className="border-slate-300 bg-white font-semibold text-slate-800" 
+                value={regTotalBill}
+                onChange={(e) => setRegTotalBill(e.target.value)}
+                required 
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Advance Received (PKR)</label>
+              <Input 
+                type="number" 
+                placeholder="Amount Deposited Now" 
+                className="border-slate-300 bg-white font-semibold text-emerald-800" 
+                value={regAdvancePaid}
+                onChange={(e) => setRegAdvancePaid(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Pending Balance (PKR)</label>
+              <Input 
+                type="text" 
+                className="border-slate-300 bg-slate-100 font-bold text-red-700 cursor-not-allowed" 
+                value={`PKR ${regPendingBalance.toLocaleString()}`}
+                readOnly
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <Button type="submit" className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">Register Patient</Button>
+            <Button type="button" variant="outline" onClick={() => setActiveTab("Overview")} className="border-slate-300">Cancel</Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
       case "Test Queue":
         return (
           <div className="space-y-6 animate-in fade-in duration-200">
@@ -1462,14 +1570,25 @@ export default function Home() {
                   <td className="px-6 py-4 text-slate-500 text-xs">{new Date(rep.createdAt || rep.generatedAt || rep.created_at || Date.now()).toLocaleString()}</td>
                   <td className="px-6 py-4">{rep.status || "Completed"}</td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end items-center gap-2">
+                    <div className="flex justify-end items-center gap-4">
                       <Link
                         href={`/template?source=report&reportNumber=${encodeURIComponent(rep.reportNumber)}`}
                         className="inline-flex items-center text-[#004d26] hover:text-[#00361a] text-xs font-semibold"
                       >
-                        <FileText className="w-4 h-4 mr-2" />
-                        View Report
+                        <FileText className="w-4 h-4 mr-1" />
+                        View
                       </Link>
+                      
+                      {/* New Delete Button */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteReport(rep.reportNumber || rep.id)}
+                        className="text-red-600 hover:text-red-800 hover:bg-red-50 text-xs font-semibold h-8 px-2"
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Delete
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -1487,8 +1606,6 @@ export default function Home() {
             {/* Dynamic Modal Interface Sheet for generating medical document records */}
             {selectedReportPatient && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-
-                
                 <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
                   <div className="bg-[#004d26] text-white px-6 py-4 flex justify-between items-center">
                     <div>
@@ -1540,10 +1657,10 @@ export default function Home() {
             )}
           </div>
         );
-
       default:
         return <div className="p-8">Section construction error. Tap routing paths to reset safely.</div>;
     }
+    
   };
 
   return (
