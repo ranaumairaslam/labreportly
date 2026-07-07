@@ -33,6 +33,31 @@ export async function GET(req) {
   }
 }
 
+export async function DELETE(req) {
+  try {
+    await ensureDatabaseIndexes();
+    const { reports } = await getCollections();
+    const url = new URL(req.url);
+    const reportNumber = url.searchParams.get("reportNumber");
+
+    if (!reportNumber) {
+      return NextResponse.json({ message: "Missing reportNumber" }, { status: 400 });
+    }
+
+    const result = await reports.deleteOne({ reportNumber });
+    return NextResponse.json(
+      { message: "Report deleted", deletedCount: result.deletedCount },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("DELETE /api/reports error:", error);
+    return NextResponse.json(
+      { message: error.message || "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req) {
   try {
     await ensureDatabaseIndexes();

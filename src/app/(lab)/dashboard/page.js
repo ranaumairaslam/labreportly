@@ -771,12 +771,36 @@ export default function Home() {
     }
   }
 
-  const handleDeleteReport = (idOrReportNumber) => {
-  if (confirm("Are you sure you want to delete this report?")) {
-    // Add your API call or state update logic here
-    setReportsList(prev => prev.filter(rep => (rep.reportNumber !== idOrReportNumber && rep.id !== idOrReportNumber)));
-  }
-};
+  const [deletingReportNumber, setDeletingReportNumber] = useState(null);
+
+  const handleDeleteReport = async (reportNumberOrId) => {
+    const reportNumber = reportNumberOrId;
+    if (!reportNumber) return;
+
+    if (!confirm("Are you sure you want to delete this report permanently?")) return;
+
+    setDeletingReportNumber(reportNumber);
+    try {
+      const res = await fetch(`/api/reports?reportNumber=${encodeURIComponent(reportNumber)}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || "Failed to delete report");
+      }
+
+      // Immediate UI sync
+      setReportsList((prev) => prev.filter((rep) => rep.reportNumber !== reportNumber));
+
+      toast.success("Report deleted successfully.");
+    } catch (error) {
+      console.error(error);
+      toast.error(error.message || "Could not delete report.");
+    } finally {
+      setDeletingReportNumber(null);
+    }
+  };
   // Content Switching Router
   const renderContent = () => {
     switch (activeTab) {
@@ -1568,7 +1592,7 @@ export default function Home() {
                   <td className="px-6 py-4 font-bold text-slate-700">{rep.reportNumber}</td>
                   <td className="px-6 py-4 text-slate-600 font-medium">{rep.patientName}</td>
                   <td className="px-6 py-4 text-slate-500 text-xs">{new Date(rep.createdAt || rep.generatedAt || rep.created_at || Date.now()).toLocaleString()}</td>
-                  <td className="px-6 py-4">{rep.status || "Completed"}</td>
+                        {rep.status || "Completed"}
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end items-center gap-4">
                       <Link
@@ -1584,6 +1608,7 @@ export default function Home() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeleteReport(rep.reportNumber || rep.id)}
+                        disabled={deletingReportNumber === (rep.reportNumber || rep.id)}
                         className="text-red-600 hover:text-red-800 hover:bg-red-50 text-xs font-semibold h-8 px-2"
                       >
                         <Trash2 className="w-4 h-4 mr-1" />
