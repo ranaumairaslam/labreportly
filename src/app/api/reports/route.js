@@ -59,7 +59,7 @@ export async function POST(req) {
       categoryTitle,
     } = body || {};
 
-    if (!reportNumber || !patientId || !patientName || !findings) {
+    if (!reportNumber || !patientId || !patientName || findings === undefined || findings === null) {
       return NextResponse.json({ message: "Missing required report fields" }, { status: 400 });
     }
 

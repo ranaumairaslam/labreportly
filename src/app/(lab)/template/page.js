@@ -12,7 +12,6 @@ import { Printer, X, Plus, Trash2, LayoutDashboard, FileText, ImagePlus, Save, S
 import { normalizeBranding, readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
 
 const DEFAULT_REPORT_COLUMNS = [
-  
   { key: "normalValue", label: "NORMAL VALUE" },
 ];
 
@@ -81,7 +80,6 @@ function tokenizeExam(s) {
   const normalized = normalizeExamString(s);
   if (!normalized) return [];
 
-  // Special handling for patterns like PT.APTT.INR where dots are used as separators.
   const spaced = normalized.replace(/\b([a-z]{1,6})\s+([a-z]{1,6})\b/g, "$1 $2");
 
   return spaced
@@ -98,7 +96,6 @@ function tokenOverlapScore(candidateTokens, examTokens) {
   for (const t of candidateTokens) {
     if (setA.has(t)) overlap += 1;
   }
-  // Normalize by candidate size to reduce bias toward long templates
   return overlap / candidateTokens.length;
 }
 
@@ -114,7 +111,6 @@ function getReportTemplateFromExam(templates, examRequired) {
     const candidateTokens = tokenizeExam(candidateStr);
     const score = tokenOverlapScore(candidateTokens, examTokens);
 
-    // Hard matches get boosted
     const normalizedExam = normalizeExamString(examRequired);
     const normalizedCandidate = normalizeExamString(template?.examRequired || "");
 
@@ -134,7 +130,6 @@ function getReportTemplateFromExam(templates, examRequired) {
   return best || templates.find((template) => template.key === "custom") || templates[0] || REPORT_TEMPLATES[0];
 }
 
-
 function createUniqueReportId() {
   return `AUTO-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
@@ -153,12 +148,48 @@ function getInitialFormData(searchParams, reportTemplate) {
     id: patientId || createUniqueReportId(),
     date: registeredAt || "Thursday, May 14, 2026",
     name: patientName || "JAVAID",
-    refBy: "Special thanks for the Doctor",
-    specimen: reportTemplate.specimen,
+    refBy: searchParams.get("refDoctor") || searchParams.get("refBy") || "Special thanks for the Doctor",
+    specimen: searchParams.get("specimen") || reportTemplate.specimen,
     examRequired: tests || reportTemplate.examRequired,
     categoryTitle: reportTemplate.categoryTitle,
     findings: "",
   };
+}
+
+function paginateRows(rows, mode) {
+  const pages = [];
+  let currentPage = [];
+  let currentUnits = 0;
+
+  // capacity based on whether letterhead + patient header occupies space
+  const firstPageCapacity = mode === "pdf" ? 9 : 13;
+  const subsequentPageCapacity = 18;
+
+  let isFirstPage = true;
+
+  rows.forEach((row) => {
+    let rowUnits = 1;
+    if (row.isSection) rowUnits = 1.5;
+    if (row.newTable) rowUnits = 2.5;
+
+    const capacity = isFirstPage ? firstPageCapacity : subsequentPageCapacity;
+
+    if (currentUnits + rowUnits > capacity && currentPage.length > 0) {
+      pages.push(currentPage);
+      currentPage = [];
+      currentUnits = 0;
+      isFirstPage = false;
+    }
+
+    currentPage.push(row);
+    currentUnits += rowUnits;
+  });
+
+  if (currentPage.length > 0) {
+    pages.push(currentPage);
+  }
+
+  return pages;
 }
 
 function TemplateCustomizer({ open, branding, onClose, onSave }) {
@@ -311,19 +342,22 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   const [isTemplateCustomizerOpen, setIsTemplateCustomizerOpen] = useState(false);
   const [reportTemplates, setReportTemplates] = useState(REPORT_TEMPLATES);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
-  // Mode Selection: 'pdf' (Full letterhead) or 'print' (Pre-printed paper / Clear results)
   const [templateMode, setTemplateMode] = useState("pdf"); 
-  const [selectedReportTemplate, setSelectedReportTemplate] = useState(() => getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests")).key);
+  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
+
+  const [selectedReportTemplates, setSelectedReportTemplates] = useState(() => {
+    const matched = getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests"));
+    return matched ? [matched.key] : [];
+  });
+
   const [reportColumns, setReportColumns] = useState(() => getTemplateColumns(getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests"))));
 
-  // General report details initialized with the image's exact data
   const [formData, setFormData] = useState(() => {
     const reportTemplate = getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests"));
     return getInitialFormData(searchParams, reportTemplate);
   });
 
-  // Dynamic test results are loaded from the selected report template.
-  const [testResults, setTestResults] = useState(() => cloneRows(getReportTemplateByKey(REPORT_TEMPLATES, selectedReportTemplate).rows));
+  const [testResults, setTestResults] = useState(() => cloneRows(getReportTemplateByKey(REPORT_TEMPLATES, selectedReportTemplates[0] || "loading").rows));
 
   useEffect(() => {
     let ignore = false;
@@ -339,20 +373,63 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         if (ignore || !Array.isArray(data.templates) || data.templates.length === 0) return;
 
         const nextTemplates = data.templates;
-        const matchedTemplate = getReportTemplateFromExam(nextTemplates, searchParams.get("tests"));
         setReportTemplates(nextTemplates);
-        setSelectedReportTemplate(matchedTemplate.key);
-        setReportColumns(getTemplateColumns(matchedTemplate));
+
+        if (searchParams.get("source") === "report") {
+          return;
+        }
+
+        const testsParam = searchParams.get("tests");
+        let keysToSelect = [];
+
+        if (testsParam) {
+          const splitTests = testsParam.split(",").map(t => t.trim().toLowerCase());
+          const matchedKeys = nextTemplates
+            .filter(t => splitTests.some(st => t.label.toLowerCase().includes(st) || (t.examRequired && t.examRequired.toLowerCase().includes(st))))
+            .map(t => t.key);
+          if (matchedKeys.length > 0) {
+            keysToSelect = matchedKeys;
+          }
+        }
+
+        if (keysToSelect.length === 0) {
+          const matchedTemplate = getReportTemplateFromExam(nextTemplates, searchParams.get("tests"));
+          keysToSelect = [matchedTemplate.key];
+        }
+
+        setSelectedReportTemplates(keysToSelect);
+
+        const templatesToMerge = nextTemplates.filter(t => keysToSelect.includes(t.key));
+        const combinedRows = [];
+
+        templatesToMerge.forEach((template, idx) => {
+          if (templatesToMerge.length > 1) {
+            combinedRows.push({
+              id: `section-${template.key}-${Date.now()}-${idx}`,
+              isSection: true,
+              test: template.label.toUpperCase(),
+              result: "",
+              units: "",
+              normalValue: "",
+              newTable: true
+            });
+          }
+          combinedRows.push(...cloneRows(template.rows));
+        });
+
+        const firstTemplate = templatesToMerge[0] || nextTemplates[0];
+        setReportColumns(getTemplateColumns(firstTemplate));
+        
         setFormData((prev) => ({
           ...prev,
-          specimen: matchedTemplate.specimen,
-          examRequired: searchParams.get("tests") || matchedTemplate.examRequired,
-          categoryTitle: matchedTemplate.categoryTitle,
+          specimen: searchParams.get("specimen") || firstTemplate.specimen,
+          examRequired: searchParams.get("tests") || templatesToMerge.map(t => t.label).join(", ") || firstTemplate.examRequired,
+          categoryTitle: templatesToMerge.length > 1 ? "LABORATORY REPORT" : firstTemplate.categoryTitle,
         }));
-        setTestResults(cloneRows(matchedTemplate.rows));
+        setTestResults(combinedRows);
       } catch (error) {
         console.error(error);
-        toast.error(error.message || "Could not load report templates from public folder.");
+        toast.error(error.message || "Could not load report templates.");
       } finally {
         if (!ignore) setIsLoadingTemplates(false);
       }
@@ -365,7 +442,6 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     };
   }, [searchParams]);
 
-  // If opened as a saved report viewer (source=report), load the saved report from the DB
   useEffect(() => {
     let ignore = false;
     async function loadSavedReport() {
@@ -384,11 +460,11 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         const report = (data.reports || [])[0];
         if (!report) return;
 
-        // Populate form and test results from stored report
         setFormData((prev) => ({
           ...prev,
           id: report.patientId || prev.id,
           name: report.patientName || prev.name,
+          refBy: report.specialistReferral || report.specialReferral || prev.refBy,
           specimen: report.specimen || prev.specimen,
           examRequired: report.examRequired || prev.examRequired,
           categoryTitle: report.categoryTitle || prev.categoryTitle,
@@ -399,7 +475,9 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           setTestResults(
             report.results.map((r) => ({
               id: createUniqueRowId(),
-              isSection: false,
+              isSection: r.isSection || false,
+              isTwoCol: r.isTwoCol || false,
+              newTable: r.newTable || false,
               test: r.test || r.name || "",
               result: r.result || r.value || "",
               units: r.units || "",
@@ -408,7 +486,6 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           );
         }
 
-        // Switch to generated/print view
         setIsGenerating(true);
       } catch (err) {
         console.error("Could not load saved report:", err);
@@ -432,17 +509,45 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     setTestResults(newTests);
   };
 
-  const handleReportTemplateChange = (key) => {
-    const reportTemplate = getReportTemplateByKey(reportTemplates, key);
-    setSelectedReportTemplate(key);
-    setReportColumns(getTemplateColumns(reportTemplate));
-    setFormData((prev) => ({
-      ...prev,
-      specimen: reportTemplate.specimen,
-      examRequired: reportTemplate.examRequired,
-      categoryTitle: reportTemplate.categoryTitle,
-    }));
-    setTestResults(cloneRows(reportTemplate.rows));
+  const handleTemplateToggle = (key) => {
+    setSelectedReportTemplates((prev) => {
+      const next = prev.includes(key)
+        ? prev.filter((k) => k !== key)
+        : [...prev, key];
+      
+      const templatesToMerge = reportTemplates.filter((t) => next.includes(t.key));
+      const combinedRows = [];
+      
+      templatesToMerge.forEach((template, idx) => {
+        if (templatesToMerge.length > 1) {
+          combinedRows.push({
+            id: `section-${template.key}-${Date.now()}-${idx}`,
+            isSection: true,
+            test: template.label.toUpperCase(),
+            result: "",
+            units: "",
+            normalValue: "",
+            newTable: true
+          });
+        }
+        combinedRows.push(...cloneRows(template.rows));
+      });
+      
+      const firstTemplate = templatesToMerge[0] || reportTemplates[0];
+      setFormData((prevForm) => ({
+        ...prevForm,
+        specimen: firstTemplate?.specimen || prevForm.specimen,
+        examRequired: templatesToMerge.map((t) => t.label).join(", ") || "Laboratory Report",
+        categoryTitle: templatesToMerge.length > 1 ? "LABORATORY REPORT" : (firstTemplate?.categoryTitle || "LABORATORY REPORT"),
+      }));
+      
+      setTestResults(combinedRows);
+      if (firstTemplate) {
+        setReportColumns(getTemplateColumns(firstTemplate));
+      }
+      
+      return next;
+    });
   };
 
   const addTestRow = () => {
@@ -498,7 +603,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         patientName: formData.name || "Unknown Patient",
         labId: branding.labId || "default-lab",
         status: "Completed",
-        templateMode, // Saves template configuration selection to dashboard dataset
+        templateMode,
         templateBranding: branding,
         patientContact: searchParams?.get("contact") || null,
         patientAge: searchParams?.get("age") || null,
@@ -506,17 +611,21 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         totalBill: searchParams?.get("totalBill") || null,
         pendingBalance: searchParams?.get("pendingBalance") || null,
         registeredAt: searchParams?.get("registeredAt") || null,
+        specialistReferral: formData.refBy,
         specialReferral: formData.refBy,
         specimen: formData.specimen,
         examRequired: formData.examRequired,
         categoryTitle: formData.categoryTitle,
-        findings: formData.findings || `No specific findings were entered for ${formData.name || "this patient"}. Review the test table for details.`,
+        findings: formData.findings || "",
         generatedAt: new Date().toISOString(),
-        results: testResults.filter((row) => !row.isSection).map((row) => ({
+        results: testResults.map((row) => ({
           test: row.test,
           result: row.result,
-          units: row.units,
-          normalValue: row.normalValue,
+          units: row.units || "",
+          normalValue: row.normalValue || "",
+          isSection: row.isSection || false,
+          isTwoCol: row.isTwoCol || false,
+          newTable: row.newTable || false,
         })),
       };
 
@@ -586,6 +695,9 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     storeBranding(nextBranding);
   };
 
+  const pages = paginateRows(testResults, templateMode);
+  const activePages = pages.length > 0 ? pages : [[]];
+
   // --- FORM VIEW (Edit Mode) ---
   if (!isGenerating) {
     return (
@@ -599,7 +711,6 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           />
         )}
 
-        {/* Top bar with Dashboard Action */}
         <div className="flex justify-between items-center mb-4 px-2">
           <Button 
             variant="outline" 
@@ -631,7 +742,6 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
             <h2 className="text-2xl font-bold text-slate-900">Edit Report Data</h2>
             
-            {/* View Mode Switcher via Standard HTML labels */}
             <div className="bg-slate-100 p-1.5 rounded-lg border border-slate-200">
               <RadioGroup value={templateMode} onValueChange={setTemplateMode} className="flex gap-2">
                 <div className="flex items-center space-x-1">
@@ -680,27 +790,56 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
                     <SelectItem value="Stool">Stool</SelectItem>
                     <SelectItem value="Serum">Serum</SelectItem>
                     <SelectItem value="Plasma">Plasma</SelectItem>
+                    {formData.specimen && !["Blood", "Urine", "Stool", "Serum", "Plasma"].includes(formData.specimen) && (
+                      <SelectItem value={formData.specimen}>{formData.specimen}</SelectItem>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Examination Required</label>
-                <Select value={selectedReportTemplate} onValueChange={handleReportTemplateChange} disabled={isLoadingTemplates}>
-                  <SelectTrigger className="border-slate-300 bg-white text-black">
-                    <SelectValue placeholder={isLoadingTemplates ? "Loading reports..." : "Choose report type"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {reportTemplates.map((reportTemplate) => (
-                      <SelectItem key={reportTemplate.key} value={reportTemplate.key}>
-                        {reportTemplate.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <button
+                  type="button"
+                  onClick={() => setIsTemplateDropdownOpen(!isTemplateDropdownOpen)}
+                  disabled={isLoadingTemplates}
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-black shadow-xs focus:outline-hidden focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="truncate">
+                    {isLoadingTemplates 
+                      ? "Loading reports..." 
+                      : selectedReportTemplates.length > 0 
+                        ? `${selectedReportTemplates.length} selected` 
+                        : "Choose report type(s)"}
+                  </span>
+                  <span className="text-xs text-slate-500">▼</span>
+                </button>
+
+                {isTemplateDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsTemplateDropdownOpen(false)} />
+                    <div className="absolute right-0 left-0 z-20 mt-1 max-h-60 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg animate-in fade-in duration-100">
+                      {reportTemplates.map((tpl) => {
+                        const isChecked = selectedReportTemplates.includes(tpl.key);
+                        return (
+                          <label
+                            key={tpl.key}
+                            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-100 cursor-pointer select-none"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => handleTemplateToggle(tpl.key)}
+                              className="h-4 w-4 rounded-sm border-slate-300 text-[#114a2f] focus:ring-emerald-500"
+                            />
+                            <span>{tpl.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-
-         
 
             <div className="pt-4 border-t border-slate-200">
               <div className="mb-4">
@@ -788,7 +927,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     );
   }
 
-  // --- PRINT / GENERATED VIEW (Strict 1-Page Layout Force Configuration) ---
+  // --- PRINT / GENERATED VIEW (Multi-Page Paginated Dynamic Layout Configuration) ---
   return (
     <div className="report-print-root w-full bg-slate-100 py-8 min-h-screen flex flex-col items-center select-text">
       {isTemplateCustomizerOpen && (
@@ -800,7 +939,6 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         />
       )}
 
-      {/* Dynamic injection to control layout rendering profiles */}
       <style dangerouslySetInnerHTML={{__html: `
         @page {
           size: A4;
@@ -831,211 +969,229 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
             position: relative !important;
             overflow: hidden !important;
             box-sizing: border-box !important;
-            page-break-after: avoid !important;
-            page-break-inside: avoid !important;
+            page-break-after: always !important;
+            break-after: page !important;
           }
           table {
             page-break-inside: avoid !important;
           }
           tr {
             page-break-inside: avoid !important;
-            page-break-after: avoid !important;
           }
         }
       `}} />
 
-      <div className="print-container bg-white w-[210mm] h-[297mm] shadow-2xl relative flex flex-col justify-between p-10 box-border print:shadow-none print:w-full">
-        
-        {/* Main top structural container */}
-        <div className="w-full flex flex-col">
-          
-          {/* Lab Watermark Background - ONLY visible in PDF mode */}
-          {templateMode === "pdf" && (
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0" style={{ opacity: Number(branding.templateWatermarkOpacity) || 0 }}>
-              <Image
-                src={branding.logoUrl}
-                alt=""
-                width={800}
-                height={800}
-                className="select-none object-contain"
-                unoptimized
-              />
-            </div>
-          )}
+      {activePages.map((pageRows, pageIdx) => {
+        const isFirstPage = pageIdx === 0;
+        const isLastPage = pageIdx === activePages.length - 1;
 
-          <div className="relative z-10 text-black font-serif w-full">
+        return (
+          <div 
+            key={pageIdx} 
+            className="print-container bg-white w-[210mm] h-[297mm] shadow-2xl relative flex flex-col justify-between p-10 box-border print:shadow-none print:w-full print:mb-0 mb-8"
+          >
             
-            {/* Top Header Branding Letterhead Layout - ONLY visible in PDF mode */}
-            {templateMode === "pdf" && (
-              <>
-<div className="flex justify-between items-center mb-1 mt-0">
-  
-  {/* Left Text - Aligned to Center */}
-  <div className="text-left w-1/3">
-    <h1 className="text-[38px] tracking-tight" style={{ color: branding.primaryColor }}>{branding.labName}</h1>
-    <p className="text-[11px] font-semibold tracking-widest text-[#4a5568] ml-6.5 uppercase">{branding.tagline}</p>
-  </div>
-  
-  {/* Center Logo */}
-  <div className="w-1/3 flex justify-center">
-    <div className="w-40 h-40 flex items-center justify-center relative">
-      <Image
-        src={branding.logoUrl}
-        alt={`${branding.labName} logo`}
-        fill
-        className="object-contain"
-        priority
-        unoptimized
-      />
-    </div>
-  </div>
+            <div className="w-full flex flex-col">
+              {templateMode === "pdf" && (
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0" style={{ opacity: Number(branding.templateWatermarkOpacity) || 0 }}>
+                  <Image
+                    src={branding.logoUrl}
+                    alt=""
+                    width={800}
+                    height={800}
+                    className="select-none object-contain"
+                    unoptimized
+                  />
+                </div>
+              )}
 
-  {/* Right Text - Aligned to Center */}
-  <div className="text-right w-1/3">
-    <h1 className="text-[52px] font-bold leading-tight" style={{ color: branding.primaryColor, fontFamily: 'Arial, sans-serif' }}>{branding.templateUrduName}</h1>
-    <p className="text-[20px] font-medium text-[#4a5568] mr-10.5" style={{ fontFamily: '"Jameel Noori Nastaleeq", "Urdu Typesetting", sans-serif' }}>
-      {branding.templateUrduTagline}
-    </p>
-  </div>
-</div>
-              
+              <div className="relative z-10 text-black font-serif w-full">
+                
+                {templateMode === "pdf" && isFirstPage && (
+                  <>
+                    <div className="flex justify-between items-center mb-1 mt-0">
+                      <div className="text-left w-1/3">
+                        <h1 className="text-[38px] tracking-tight" style={{ color: branding.primaryColor }}>{branding.labName}</h1>
+                        <p className="text-[11px] font-semibold tracking-widest text-[#4a5568] ml-6.5 uppercase">{branding.tagline}</p>
+                      </div>
+                      
+                      <div className="w-1/3 flex justify-center">
+                        <div className="w-40 h-40 flex items-center justify-center relative">
+                          <Image
+                            src={branding.logoUrl}
+                            alt={`${branding.labName} logo`}
+                            fill
+                            className="object-contain"
+                            priority
+                            unoptimized
+                          />
+                        </div>
+                      </div>
 
-                <hr className="border-t border-black mb-0.5" />
-                <hr className="border-t-[3px] border-black mb-4" />
-              </>
-            )}
-
-            {/* Spacer margin offset layout dynamic fallback used when branding is hidden */}
-            {templateMode === "print" && <div className="h-6 w-full" />}
-
-            {/* Patient Details Metadata Table - Always visible */}
-            <table className="w-full text-[13px] border border-black mb-7   mt-22">
-              <tbody>
-                <tr>
-                  <td className="w-[15%] p-1 border border-black font-bold bg-[#f3f4f6]">No:</td>
-                  <td className="w-[35%] p-1 border border-black font-bold">{formData.id}</td>
-                  <td colSpan={2} className="w-[50%] p-1 border border-black font-bold text-right pr-4 bg-[#f3f4f6]">
-                    {formData.date}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Patient Name:</td>
-                  <td colSpan={3} className="p-1 border border-black font-bold uppercase text-center">{formData.name}</td>
-                </tr>
-                <tr>
-                  <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Ref. By:</td>
-                  <td colSpan={3} className="p-1 border border-black font-bold text-center">{formData.refBy}</td>
-                </tr>
-                <tr>
-                  <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Specimen:</td>
-                  <td colSpan={3} className="p-1 border border-black font-bold text-center">{formData.specimen}</td>
-                </tr>
-                <tr>
-                  <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Examination Required:</td>
-                  <td colSpan={3} className="p-1 border border-black font-bold text-center">{formData.examRequired}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Report Title Heading */}
-            <h2 className="text-[17px] font-bold text-center mb-3  uppercase tracking-wide">{formData.categoryTitle}</h2>
-
-            {/* Structured Results Metrics Matrix Table - Always visible */}
-            {groupRowsIntoTables(testResults, reportColumns).map((table, tIdx) => (
-              <table key={tIdx} className="w-full text-[13px] border-collapse mb-3">
-                <thead>
-                  <tr>
-                    {table.columns.map((column) => (
-                      <th
-                        key={column.key}
-                        className={`p-1 border-b border-black font-bold ${column.key === "test" ? "text-left" : "text-center"}`}
-                      >
-                        {column.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {table.rows.map((result) => {
-                    if (result.test === "Spacer") {
-                      return (
-                        <tr key={result.id || createUniqueRowId()}>
-                          <td colSpan={table.columns.length} className="h-3 border border-black bg-white"></td>
-                        </tr>
-                      );
-                    }
+                      <div className="text-right w-1/3">
+                        <h1 className="text-[52px] font-bold leading-tight" style={{ color: branding.primaryColor, fontFamily: 'Arial, sans-serif' }}>{branding.templateUrduName}</h1>
+                        <p className="text-[20px] font-medium text-[#4a5568] mr-10.5" style={{ fontFamily: '"Jameel Noori Nastaleeq", "Urdu Typesetting", sans-serif' }}>
+                          {branding.templateUrduTagline}
+                        </p>
+                      </div>
+                    </div>
                     
-                    if (result.isSection) {
-                      return (
-                        <tr key={result.id || createUniqueRowId()}>
-                          <td colSpan={table.columns.length} className="p-1 border border-black font-bold bg-white text-left whitespace-pre-wrap">
-                            {result.test}
-                          </td>
-                        </tr>
-                      );
-                    }
+                    <hr className="border-t border-black mb-0.5" />
+                    <hr className="border-t-[3px] border-black mb-4" />
+                  </>
+                )}
 
-                    if (result.isTwoCol) {
-                      return (
-                        <tr key={result.id || createUniqueRowId()}>
-                          <td className="p-1 border border-black font-bold">
-                            {result.test}
-                          </td>
-                          <td colSpan={table.columns.length - 1} className="p-1 border border-black font-bold text-center">
-                            {result.result || ""}
-                          </td>
-                        </tr>
-                      );
-                    }
+                {!isFirstPage && (
+                  <div className="flex justify-between items-center border-b border-slate-300 pb-2 mb-4">
+                    <span className="text-xs font-semibold text-slate-500">{branding.labName}</span>
+                    <span className="text-xs font-semibold text-slate-500">Patient: {formData.name} (Lab No: {formData.id})</span>
+                  </div>
+                )}
 
-                    return (
-                      <tr key={result.id || createUniqueRowId()}>
+                {templateMode === "print" && isFirstPage && <div className="h-6 w-full" />}
+
+                {isFirstPage && (
+                  <table className="w-full text-[13px] border border-black mb-7 mt-22 table-fixed">
+                    <tbody>
+                      <tr>
+                        <td className="w-[15%] p-1 border border-black font-bold bg-[#f3f4f6]">Lab No:</td>
+                        <td className="w-[35%] p-1 border border-black font-bold px-2">{formData.id}</td>
+                        <td className="w-[15%] p-1 border border-black font-bold bg-[#f3f4f6]">Date & Time:</td>
+                        <td className="w-[35%] p-1 border border-black font-bold px-2">
+                          {formData.date || formData.regDateTime}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Patient Name:</td>
+                        <td className="p-1 border border-black font-bold uppercase px-2">{formData.name}</td>
+                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Ref. By:</td>
+                        <td className="p-1 border border-black font-bold px-2">
+                          {formData.refBy || formData.regRefDoctor || "Self"}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Specimen:</td>
+                        <td className="p-1 border border-black font-bold px-2">
+                          {formData.specimen || formData.regSpecimen}
+                        </td>
+                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Examination:</td>
+                        <td className="p-1 border border-black font-bold px-2">
+                          {formData.examRequired || formData.regTests}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+
+                {isFirstPage && (
+                  <h2 className="text-[17px] font-bold text-center mb-3 uppercase tracking-wide">
+                    {formData.categoryTitle}
+                  </h2>
+                )}
+
+                {groupRowsIntoTables(pageRows, reportColumns).map((table, tIdx) => (
+                  <table key={tIdx} className="w-full text-[13px] border-collapse mb-3">
+                    <thead>
+                      <tr>
                         {table.columns.map((column) => (
-                          <td
+                          <th
                             key={column.key}
-                            className={`p-1 border border-black font-bold ${column.key === "test" ? "" : "text-center"} ${column.key === "normalValue" ? "whitespace-pre-line leading-tight text-[12px]" : ""}`}
+                            className={`p-1 border-b border-black font-bold ${column.key === "test" ? "text-left" : "text-center"}`}
                           >
-                            {result[column.key] || ""}
-                          </td>
+                            {column.label}
+                          </th>
                         ))}
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ))}
+                    </thead>
+                    <tbody>
+                      {table.rows.map((result) => {
+                        if (result.test === "Spacer") {
+                          return (
+                            <tr key={result.id || createUniqueRowId()}>
+                              <td colSpan={table.columns.length} className="h-3 border border-black bg-white"></td>
+                            </tr>
+                          );
+                        }
+                        
+                        if (result.isSection) {
+                          return (
+                            <tr key={result.id || createUniqueRowId()}>
+                              <td colSpan={table.columns.length} className="p-1 border border-black font-bold bg-white text-left whitespace-pre-wrap">
+                                {result.test}
+                              </td>
+                            </tr>
+                          );
+                        }
 
-            {/* Analytical Clinical Findings if populated */}
-            {formData.findings && (
-              <div className="w-full p-2 border border-black text-xs font-sans mt-2">
-                <strong>Clinical Notes / Findings:</strong>
-                <p className="whitespace-pre-wrap mt-1 text-slate-700">{formData.findings}</p>
+                        if (result.isTwoCol) {
+                          return (
+                            <tr key={result.id || createUniqueRowId()}>
+                              <td className="p-1 border border-black font-bold">
+                                {result.test}
+                              </td>
+                              <td colSpan={table.columns.length - 1} className="p-1 border border-black font-bold text-center">
+                                {result.result || ""}
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return (
+                          <tr key={result.id || createUniqueRowId()}>
+                            {table.columns.map((column) => (
+                              <td
+                                key={column.key}
+                                className={`p-1 border border-black font-bold ${column.key === "test" ? "" : "text-center"} ${column.key === "normalValue" ? "whitespace-pre-line leading-tight text-[12px]" : ""}`}
+                              >
+                                {result[column.key] || ""}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ))}
+
+                {isLastPage && formData.findings && 
+                 !formData.findings.includes("No specific findings were entered") && 
+                 !formData.findings.includes("Report generated automatically") && 
+                 formData.findings !== "Report generated." && 
+                 formData.findings.trim() !== "" && (
+                  <div className="w-full p-2 border border-black text-xs font-sans mt-2">
+                    <strong>Clinical Notes / Findings:</strong>
+                    <p className="whitespace-pre-wrap mt-1 text-slate-700">{formData.findings}</p>
+                  </div>
+                )}
+              
               </div>
-            )}
-          
-          </div>
-        </div>
-
-        {/* Dynamic footer layer controls */}
-        <div className="w-full relative z-10 text-black font-serif">
-          {/* Signature Clearance Area */}
-          <div className="flex justify-end mb-8 print:mb-4">
-            <div className="text-center">
-              <p className="text-[13px] font-bold border-t border-black/40 pt-1 px-4">{branding.templateInchargeLabel}</p>
             </div>
-          </div>
 
-          {/* Absolute Layout Address Banner Block - ONLY visible in PDF mode */}
-          {templateMode === "pdf" && (
-            <div className="text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide -mx-10 -mb-10 print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
-              {branding.templateFooter}
+            <div className="w-full relative z-10 text-black font-serif">
+              <div className="flex justify-between items-center text-[10px] text-slate-500 border-t border-slate-100 pt-2 mb-2 print:mb-1">
+                <span>Printed on: {new Date().toLocaleDateString()}</span>
+                <span>Page {pageIdx + 1} of {activePages.length}</span>
+              </div>
+
+              {isLastPage && (
+                <div className="flex justify-end mb-8 print:mb-4">
+                  <div className="text-center">
+                    <p className="text-[13px] font-bold border-t border-black/40 pt-1 px-4">{branding.templateInchargeLabel}</p>
+                  </div>
+                </div>
+              )}
+
+              {templateMode === "pdf" && (
+                <div className="text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide -mx-10 -mb-10 print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
+                  {branding.templateFooter}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-      </div>
+          </div>
+        );
+      })}
 
-      {/* Floating Action Menu controls tray (Excluded from print output automatically) */}
       <div className="fixed bottom-8 flex gap-3 print:hidden bg-white/90 backdrop-blur-sm p-4 rounded-full shadow-lg border border-slate-200 z-50">
         <Button 
           variant="outline" 
