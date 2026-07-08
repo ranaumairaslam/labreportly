@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { FileText, Menu, Plus, Printer, Search, Settings, Trash2, X } from "lucide-react";
 import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
-import { readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
+import { readStoredBranding, storeBranding, normalizeBranding } from "@/lib/dashboardBranding";
 
 
 function createPaymentId(prefix, existingPayments = []) {
@@ -144,8 +144,13 @@ export default function Home() {
 
         const data = await res.json();
         const lab = data.labs?.find((item) => item.id === resolvedLabId) || data.labs?.find((item) => item.status === "Active") || data.labs?.[0] || null;
-        if (lab?.id) {
-          setCurrentLabId(lab.id);
+        if (lab) {
+          if (lab.id) setCurrentLabId(lab.id);
+          if (lab.branding) {
+            const nextBranding = normalizeBranding(lab.branding);
+            setBranding(nextBranding);
+            storeBranding(nextBranding);
+          }
         } else if (resolvedLabId) {
           setCurrentLabId(resolvedLabId);
         }
@@ -1309,7 +1314,7 @@ export default function Home() {
                         <td className="px-6 py-4 font-semibold text-slate-700">{row.id}</td>
                         <td className="px-6 py-4 text-slate-600">{row.patient}</td>
                         <td className="px-6 py-4 text-slate-600 text-xs">{row.tests}</td>
-                        <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
+                  <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
                         <td className="px-6 py-4"><Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Normal</Badge></td>
                         <td className="px-6 py-4 flex items-center gap-2 justify-end">
                           <Button 
@@ -1587,12 +1592,12 @@ export default function Home() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {reportsList.map((rep, index) => (
+                      {reportsList.map((rep, index) => (
                 <tr key={rep.reportNumber || rep.id || `report-${index}`} className="hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-4 font-bold text-slate-700">{rep.reportNumber}</td>
                   <td className="px-6 py-4 text-slate-600 font-medium">{rep.patientName}</td>
                   <td className="px-6 py-4 text-slate-500 text-xs">{new Date(rep.createdAt || rep.generatedAt || rep.created_at || Date.now()).toLocaleString()}</td>
-                        {rep.status || "Completed"}
+                  <td className="px-6 py-4">{rep.status || "Completed"}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end items-center gap-4">
                       <Link
@@ -1602,7 +1607,7 @@ export default function Home() {
                         <FileText className="w-4 h-4 mr-1" />
                         View
                       </Link>
-                      
+
                       {/* New Delete Button */}
                       <Button
                         variant="ghost"
