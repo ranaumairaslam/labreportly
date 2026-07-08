@@ -1,11 +1,13 @@
 "use client";
 
-import StaffLogin from "@/components/auth/StaffLogin";
+import { LandingPage } from "@/components/LandingPage";
 
 export default function HomePage() {
   return (
     <main className="font-sans text-[#566048] bg-[#ffffff]">
-      <StaffLogin />
+      <LandingPage />
+
+
     </main>
   );
 }

@@ -55,7 +55,20 @@ export default function StaffDashboard() {
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
   const [branding, setBranding] = useState(readStoredBranding);
   const [patientSearch, setPatientSearch] = useState("");
-  const [labId, setLabId] = useState("");
+  const [labId, setLabId] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const storedStaff = window.localStorage.getItem("staff_profile");
+        if (storedStaff) {
+          const parsed = JSON.parse(storedStaff);
+          return parsed?.labId || "";
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    return "";
+  });
   const [testQueueData, setTestQueueData] = useState([]);
   const [advancePayments, setAdvancePayments] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
@@ -83,9 +96,6 @@ export default function StaffDashboard() {
       if (parsedStaff?.role !== "Staff") {
         router.replace("/");
         return;
-      }
-      if (parsedStaff?.labId) {
-        setLabId(parsedStaff.labId);
       }
     } catch (error) {
       router.replace("/");
@@ -144,7 +154,7 @@ export default function StaffDashboard() {
 
     loadPatients();
     loadBranding();
-  }, []);
+  }, [router]);
 
   const baseMenuItems = [
     { name: "Registration", icon: ClipboardPlus },

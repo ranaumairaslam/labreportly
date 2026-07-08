@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { 
   Building2, 
   Users, 
@@ -295,7 +296,7 @@ export default function SuperAdminDashboard() {
           {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-color:white flex items-center justify-center font-bold text-white shadow-md shadow-teal-500/20">
-              <img src="/super/softcenteric-logo.webp" alt="Logo" className="w-10 h-8" />
+              <Image src="/super/softcenteric-logo.webp" alt="Logo" width={40} height={32} className="w-10 h-8" unoptimized />
             </div>
             <div>
               <h1 className="font-extrabold text-slate-900 tracking-wide text-lg">Softcenteric</h1>
@@ -325,7 +326,7 @@ export default function SuperAdminDashboard() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-600">
-                <img src="/super/softcenteric-logo.webp" alt="Logo" className="w-6 h-5" />
+                <Image src="/super/softcenteric-logo.webp" alt="Logo" width={24} height={20} className="w-6 h-5" unoptimized />
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-800">Admin Account</p>
