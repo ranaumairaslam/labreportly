@@ -138,20 +138,25 @@ function createUniqueRowId() {
   return `ROW-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
-function getInitialFormData(searchParams, reportTemplate) {
-  const patientId = searchParams.get("patientId");
-  const patientName = searchParams.get("patientName");
-  const tests = searchParams.get("tests");
-  const registeredAt = searchParams.get("registeredAt");
+function getInitialFormData(searchParams, reportTemplate, patientData) {
+  const getParam = (key) => {
+    if (patientData && patientData[key] !== undefined) return patientData[key];
+    return searchParams.get(key);
+  };
+
+  const patientId = getParam("patientId");
+  const patientName = getParam("patientName");
+  const tests = getParam("tests");
+  const registeredAt = getParam("registeredAt");
 
   return {
     id: patientId || createUniqueReportId(),
-    date: registeredAt || "Thursday, May 14, 2026",
-    name: patientName || "JAVAID",
-    refBy: searchParams.get("refDoctor") || searchParams.get("refBy") || "Special thanks for the Doctor",
-    specimen: searchParams.get("specimen") || reportTemplate.specimen,
-    examRequired: tests || reportTemplate.examRequired,
-    categoryTitle: reportTemplate.categoryTitle,
+    date: registeredAt || new Date().toISOString().split('T')[0],
+    name: patientName || "Patient",
+    refBy: getParam("refDoctor") || getParam("refBy") || "Self",
+    specimen: getParam("specimen") || reportTemplate.specimen || "Blood",
+    examRequired: tests || reportTemplate.examRequired || "",
+    categoryTitle: reportTemplate.categoryTitle || "LABORATORY REPORT",
     findings: "",
   };
 }
@@ -334,7 +339,7 @@ function TemplateCustomizer({ open, branding, onClose, onSave }) {
   );
 }
 
-function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
+function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, onReportSaved }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
@@ -345,16 +350,25 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   const [templateMode, setTemplateMode] = useState("pdf"); 
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
 
+  const getParam = (key) => {
+    if (patientData && patientData[key] !== undefined) {
+      return patientData[key];
+    }
+    return searchParams.get(key);
+  };
+
+  const testsParam = getParam("tests");
+
   const [selectedReportTemplates, setSelectedReportTemplates] = useState(() => {
-    const matched = getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests"));
+    const matched = getReportTemplateFromExam(REPORT_TEMPLATES, testsParam);
     return matched ? [matched.key] : [];
   });
 
-  const [reportColumns, setReportColumns] = useState(() => getTemplateColumns(getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests"))));
+  const [reportColumns, setReportColumns] = useState(() => getTemplateColumns(getReportTemplateFromExam(REPORT_TEMPLATES, testsParam)));
 
   const [formData, setFormData] = useState(() => {
-    const reportTemplate = getReportTemplateFromExam(REPORT_TEMPLATES, searchParams.get("tests"));
-    return getInitialFormData(searchParams, reportTemplate);
+    const reportTemplate = getReportTemplateFromExam(REPORT_TEMPLATES, testsParam);
+    return getInitialFormData(searchParams, reportTemplate, patientData);
   });
 
   const [testResults, setTestResults] = useState(() => cloneRows(getReportTemplateByKey(REPORT_TEMPLATES, selectedReportTemplates[0] || "loading").rows));
@@ -375,11 +389,11 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         const nextTemplates = data.templates;
         setReportTemplates(nextTemplates);
 
-        if (searchParams.get("source") === "report") {
+        if (getParam("source") === "report") {
           return;
         }
 
-        const testsParam = searchParams.get("tests");
+        const testsParam = getParam("tests");
         let keysToSelect = [];
 
         if (testsParam) {
@@ -393,7 +407,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         }
 
         if (keysToSelect.length === 0) {
-          const matchedTemplate = getReportTemplateFromExam(nextTemplates, searchParams.get("tests"));
+          const matchedTemplate = getReportTemplateFromExam(nextTemplates, testsParam);
           keysToSelect = [matchedTemplate.key];
         }
 
@@ -422,8 +436,8 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         
         setFormData((prev) => ({
           ...prev,
-          specimen: searchParams.get("specimen") || firstTemplate.specimen,
-          examRequired: searchParams.get("tests") || templatesToMerge.map(t => t.label).join(", ") || firstTemplate.examRequired,
+          specimen: getParam("specimen") || firstTemplate.specimen,
+          examRequired: getParam("tests") || templatesToMerge.map(t => t.label).join(", ") || firstTemplate.examRequired,
           categoryTitle: templatesToMerge.length > 1 ? "LABORATORY REPORT" : firstTemplate.categoryTitle,
         }));
         setTestResults(combinedRows);
@@ -440,13 +454,13 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     return () => {
       ignore = true;
     };
-  }, [searchParams]);
+  }, [searchParams, patientData]);
 
   useEffect(() => {
     let ignore = false;
     async function loadSavedReport() {
-      const source = searchParams.get("source");
-      const reportNumber = searchParams.get("reportNumber") || searchParams.get("lastReportNumber");
+      const source = getParam("source");
+      const reportNumber = getParam("reportNumber") || getParam("lastReportNumber");
       if (source !== "report" || !reportNumber) return;
 
       try {
@@ -496,7 +510,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
     return () => {
       ignore = true;
     };
-  }, [searchParams]);
+  }, [searchParams, patientData]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -605,12 +619,12 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
         status: "Completed",
         templateMode,
         templateBranding: branding,
-        patientContact: searchParams?.get("contact") || null,
-        patientAge: searchParams?.get("age") || null,
-        patientGender: searchParams?.get("gender") || null,
-        totalBill: searchParams?.get("totalBill") || null,
-        pendingBalance: searchParams?.get("pendingBalance") || null,
-        registeredAt: searchParams?.get("registeredAt") || null,
+        patientContact: getParam("contact") || null,
+        patientAge: getParam("age") || null,
+        patientGender: getParam("gender") || null,
+        totalBill: getParam("totalBill") || null,
+        pendingBalance: getParam("pendingBalance") || null,
+        registeredAt: getParam("registeredAt") || null,
         specialistReferral: formData.refBy,
         specialReferral: formData.refBy,
         specimen: formData.specimen,
@@ -667,6 +681,9 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
           toast.error("Report saved, but patient record update failed.");
         } else {
           toast.success("Report saved and patient record updated.");
+          if (onReportSaved) {
+            onReportSaved();
+          }
         }
       } catch (updateError) {
         console.warn("Could not update patient record after report save:", updateError);
@@ -683,10 +700,12 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard }) {
   };
 
   const handleDashboardNavigation = () => {
-    if (onNavigateDashboard) {
+    if (onClose) {
+      onClose();
+    } else if (onNavigateDashboard) {
       onNavigateDashboard();
     } else {
-        router.push(searchParams.get("source") === "staff" ? "/staff-dashboard" : "/dashboard");
+      router.push(getParam("source") === "staff" ? "/staff-dashboard" : "/dashboard");
     }
   };
 
