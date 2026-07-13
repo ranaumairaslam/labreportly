@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ClipboardPlus, FileText, LogOut, Menu, Plus, Search, Settings, X, Check, ChevronDown } from "lucide-react";
+import { ClipboardPlus, FileText, LogOut, Menu, Plus, Search, Settings, X, Check, ChevronDown, ArrowLeft } from "lucide-react";
 import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
 import { readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
 import LabReportTemplate from "../template/page";
@@ -29,25 +29,6 @@ function getLocalDateString(date = new Date()) {
   const pad = (value) => value.toString().padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
-
-function getTemplateHref(patient) {
-  const params = new URLSearchParams({
-    source: "staff",
-    patientId: patient.id,
-    patientName: patient.patient,
-    contact: patient.contact || "",
-    age: patient.age || "",
-    gender: patient.gender || "",
-    tests: patient.tests || "",
-    registeredAt: patient.registeredAt || "",
-    totalBill: String(patient.totalBill || ""),
-    pendingBalance: String(patient.pendingBalance || ""),
-  });
-
-  return `/template?${params.toString()}`;
-}
-
-
 
 export default function StaffDashboard() {
   const router = useRouter();
@@ -112,11 +93,6 @@ export default function StaffDashboard() {
       
       const testNames = next.map((item) => item.label).join(", ");
       setRegTests(testNames);
-      
-      if (next.length > 0) {
-        // Auto populate specimen (since we don't have separate specimen field in staff-dashboard's simple layout, we can auto fill or leave it)
-        // Wait, staff dashboard does have "assigned tests" but not a specimen input in patient info, wait! Let's check: it doesn't have a specimen field in simple registration! So it defaults to Blood. We can just set it anyway, as it is saved in queueRecord.
-      }
       return next;
     });
   };
@@ -244,6 +220,11 @@ export default function StaffDashboard() {
   const handleBrandingSave = (nextBranding) => {
     setBranding(nextBranding);
     storeBranding(nextBranding);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("staff_profile");
+    router.push("/");
   };
 
   const todayDate = getLocalDateString();
@@ -641,7 +622,7 @@ export default function StaffDashboard() {
                   <td className="px-6 py-4 text-slate-600 font-medium">
                     <button 
                       onClick={() => handleOpenReportEditor(row)} 
-                      className="text-[#004d26] hover:underline font-medium cursor-pointer text-left"
+                      className="text-[#004d26] hover:underline font-medium cursor-pointer text-left border-none bg-transparent"
                     >
                       {row.patient}
                     </button>
@@ -674,6 +655,24 @@ export default function StaffDashboard() {
   );
 
   const renderContent = () => {
+    // Intercept rendering if an active report session is open
+    if (activeReportPatientData) {
+      return (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          <Button 
+            variant="ghost" 
+            onClick={() => setActiveReportPatientData(null)} 
+            className="text-slate-600 hover:text-slate-900"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Dashboard
+          </Button>
+          <div className="bg-white rounded-xl shadow-md border border-slate-100 p-2">
+            <LabReportTemplate initialData={activeReportPatientData} />
+          </div>
+        </div>
+      );
+    }
+
     if (activeTab === "Report Generated") return renderReports();
     return renderRegistration();
   };
@@ -714,11 +713,11 @@ export default function StaffDashboard() {
                   setActiveReportPatientData(null);
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 ${
-                  activeTab === item.name
+                  activeTab === item.name && !activeReportPatientData
                     ? "bg-yellow-400 text-[#004d26] shadow-md font-bold scale-[1.02]"
                     : "text-emerald-100 hover:bg-emerald-800/60 hover:text-white"
                 }`}
-                style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
+                style={activeTab === item.name && !activeReportPatientData ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
               >
                 <Icon className="h-4 w-4" />
                 {item.name}
@@ -737,99 +736,26 @@ export default function StaffDashboard() {
           </button>
         </div>
         <div className="p-4 border-t border-emerald-900 bg-[#003d1e]">
-          <div className="flex items-center gap-3 p-2 rounded-lg bg-emerald-950/40">
+          <div className="flex items-center gap-3 p-2 rounded-lg bg-emerald-950/40 mb-3">
             <div className="w-8 h-8 rounded-full bg-yellow-400 text-[#004d26] flex items-center justify-center font-bold text-xs">ST</div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate text-white">Staff User</p>
-              <p className="text-[10px] text-emerald-200 truncate">Registration Desk</p>
+              <p className="text-xs font-bold text-white truncate">Staff Member</p>
+              <p className="text-[10px] text-emerald-300 truncate">Logged In</p>
             </div>
           </div>
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold text-red-200 bg-red-950/30 hover:bg-red-900/40 rounded-lg transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            Sign Out
+          </button>
         </div>
       </aside>
 
-      {isMobileSidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 lg:hidden animate-in fade-in duration-200">
-          <aside className="w-64 text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200" style={{ backgroundColor: branding.primaryColor }}>
-            <div className="p-6 border-b border-emerald-900 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 bg-white rounded-full flex items-center justify-center overflow-hidden border border-white/20 shrink-0 shadow-sm">
-                  {branding.logoUrl ? (
-                    <Image src={branding.logoUrl} alt={`${branding.labName} logo`} width={44} height={44} className="h-full w-full object-cover" unoptimized />
-                  ) : null}
-                </div>
-                <span className="font-bold" style={{ color: branding.accentColor }}>{branding.labName}</span>
-              </div>
-              <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(false)} className="text-white hover:bg-emerald-800">
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-            <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.name}
-                    onClick={() => {
-                      setActiveTab(item.name);
-                      setIsMobileSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm ${
-                      activeTab === item.name ? "bg-yellow-400 text-[#004d26] font-bold" : "text-emerald-100 hover:bg-emerald-800"
-                    }`}
-                    style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.name}
-                  </button>
-                );
-              })}
-            </nav>
-            <div className="px-4 pb-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsCustomizerOpen(true);
-                  setIsMobileSidebarOpen(false);
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800"
-              >
-                <Settings className="h-4 w-4" />
-                Edit Dashboard
-              </button>
-            </div>
-          </aside>
-        </div>
-      )}
-
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 z-10">
-          <div className="flex items-center gap-4">
-            <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(true)} className="lg:hidden text-slate-600">
-              <Menu className="w-5 h-5" />
-            </Button>
-            <div>
-              <p className="text-xs font-bold text-slate-700">Staff Dashboard</p>
-              <p className="text-[10px] text-slate-400 font-semibold">{branding.labName} patient registration and report generation</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden md:block">
-              <p className="text-xs font-bold text-slate-700">{branding.address}</p>
-              <p className="text-[10px] text-slate-400 font-semibold">Cell: {branding.phone}</p>
-            </div>
-            <Button asChild variant="outline" className="border-slate-300 text-slate-700">
-              <Link href="/">
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Link>
-            </Button>
-          </div>
-        </header>
-
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">
-          <div className="max-w-6xl mx-auto">{renderContent()}</div>
-        </main>
-      </div>
+      <main className="flex-1 overflow-y-auto p-8 lg:p-12">
+        {renderContent()}
+      </main>
     </div>
   );
 }
