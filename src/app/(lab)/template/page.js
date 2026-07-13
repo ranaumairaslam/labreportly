@@ -27,11 +27,16 @@ const REPORT_TEMPLATES = [
   },
 ];
 
-function cloneRows(rows) {
+// Attaches each row to the column-set of the template it came from, so that
+// when several report templates are merged together each one keeps its own
+// columns instead of being forced into whichever template happened to load
+// first. This is the source of the "conflicting template" bug.
+function cloneRows(rows, tableColumns) {
   return rows.map((row) => ({
     ...row,
     id: row.id || createUniqueRowId(),
     result: row.result || "",
+    tableColumns: tableColumns || row.tableColumns || DEFAULT_REPORT_COLUMNS,
   }));
 }
 
@@ -128,6 +133,37 @@ function getReportTemplateFromExam(templates, examRequired) {
   }
 
   return best || templates.find((template) => template.key === "custom") || templates[0] || REPORT_TEMPLATES[0];
+}
+
+// Single, unified matcher used everywhere a "tests" param needs to be turned
+// into one-or-more report templates. Previously there were two different,
+// conflicting matching algorithms (a raw substring check here, and a token
+// scoring function elsewhere) that could disagree on which templates were
+// selected depending on where in the component they ran. Now there is only
+// one source of truth: split the requested exam string on commas, and find
+// the best-scoring template for each requested test.
+function getMatchingReportTemplates(templates, examString) {
+  const requestedTests = (examString || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (requestedTests.length <= 1) {
+    return [getReportTemplateFromExam(templates, examString)];
+  }
+
+  const matched = [];
+  const seenKeys = new Set();
+
+  requestedTests.forEach((test) => {
+    const bestMatch = getReportTemplateFromExam(templates, test);
+    if (bestMatch && !seenKeys.has(bestMatch.key)) {
+      seenKeys.add(bestMatch.key);
+      matched.push(bestMatch);
+    }
+  });
+
+  return matched.length ? matched : [getReportTemplateFromExam(templates, examString)];
 }
 
 function createUniqueReportId() {
@@ -371,7 +407,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
     return getInitialFormData(searchParams, reportTemplate, patientData);
   });
 
-  const [testResults, setTestResults] = useState(() => cloneRows(getReportTemplateByKey(REPORT_TEMPLATES, selectedReportTemplates[0] || "loading").rows));
+  const [testResults, setTestResults] = useState(() => {
+    const initialTemplate = getReportTemplateByKey(REPORT_TEMPLATES, selectedReportTemplates[0] || "loading");
+    return cloneRows(initialTemplate.rows, getTemplateColumns(initialTemplate));
+  });
 
   useEffect(() => {
     let ignore = false;
@@ -394,22 +433,8 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         }
 
         const testsParam = getParam("tests");
-        let keysToSelect = [];
-
-        if (testsParam) {
-          const splitTests = testsParam.split(",").map(t => t.trim().toLowerCase());
-          const matchedKeys = nextTemplates
-            .filter(t => splitTests.some(st => t.label.toLowerCase().includes(st) || (t.examRequired && t.examRequired.toLowerCase().includes(st))))
-            .map(t => t.key);
-          if (matchedKeys.length > 0) {
-            keysToSelect = matchedKeys;
-          }
-        }
-
-        if (keysToSelect.length === 0) {
-          const matchedTemplate = getReportTemplateFromExam(nextTemplates, testsParam);
-          keysToSelect = [matchedTemplate.key];
-        }
+        const matchedTemplates = getMatchingReportTemplates(nextTemplates, testsParam);
+        const keysToSelect = matchedTemplates.map((t) => t.key);
 
         setSelectedReportTemplates(keysToSelect);
 
@@ -417,6 +442,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         const combinedRows = [];
 
         templatesToMerge.forEach((template, idx) => {
+          const tplColumns = getTemplateColumns(template);
           if (templatesToMerge.length > 1) {
             combinedRows.push({
               id: `section-${template.key}-${Date.now()}-${idx}`,
@@ -425,10 +451,11 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
               result: "",
               units: "",
               normalValue: "",
-              newTable: true
+              newTable: true,
+              tableColumns: tplColumns,
             });
           }
-          combinedRows.push(...cloneRows(template.rows));
+          combinedRows.push(...cloneRows(template.rows, tplColumns));
         });
 
         const firstTemplate = templatesToMerge[0] || nextTemplates[0];
@@ -496,6 +523,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
               result: r.result || r.value || "",
               units: r.units || "",
               normalValue: r.normalValue || "",
+              tableColumns: r.tableColumns || DEFAULT_REPORT_COLUMNS,
             }))
           );
         }
@@ -533,6 +561,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
       const combinedRows = [];
       
       templatesToMerge.forEach((template, idx) => {
+        const tplColumns = getTemplateColumns(template);
         if (templatesToMerge.length > 1) {
           combinedRows.push({
             id: `section-${template.key}-${Date.now()}-${idx}`,
@@ -541,10 +570,11 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
             result: "",
             units: "",
             normalValue: "",
-            newTable: true
+            newTable: true,
+            tableColumns: tplColumns,
           });
         }
-        combinedRows.push(...cloneRows(template.rows));
+        combinedRows.push(...cloneRows(template.rows, tplColumns));
       });
       
       const firstTemplate = templatesToMerge[0] || reportTemplates[0];
@@ -565,6 +595,8 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
   };
 
   const addTestRow = () => {
+    const lastRow = testResults[testResults.length - 1];
+    const tplColumns = lastRow?.tableColumns || reportColumns;
     setTestResults([
       ...testResults,
       {
@@ -574,17 +606,21 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         result: "",
         units: "",
         normalValue: "",
+        tableColumns: tplColumns,
       },
     ]);
   };
 
   const addSectionRow = () => {
+    const lastRow = testResults[testResults.length - 1];
+    const tplColumns = lastRow?.tableColumns || reportColumns;
     setTestResults([
       ...testResults,
       {
         id: createUniqueRowId(),
         isSection: true,
         test: "New Section",
+        tableColumns: tplColumns,
       },
     ]);
   };
@@ -640,6 +676,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
           isSection: row.isSection || false,
           isTwoCol: row.isTwoCol || false,
           newTable: row.newTable || false,
+          tableColumns: row.tableColumns || DEFAULT_REPORT_COLUMNS,
         })),
       };
 
@@ -870,60 +907,79 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                 <Input name="categoryTitle" value={formData.categoryTitle} onChange={handleInputChange} className="font-bold uppercase" />
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse mb-4 min-w-150">
-                  <thead>
-                    <tr className="bg-slate-200 text-sm text-black">
-                      {reportColumns.map((column) => (
-                        <th key={column.key} className="p-2 border border-slate-300 text-left">
-                          {column.key === "test" ? "Test Name / Section" : column.label}
-                        </th>
-                      ))}
-                      <th className="p-2 border border-slate-300 text-center w-12">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {testResults.map((row, i) => (
-                      <tr key={row.id || createUniqueRowId()} className={`text-sm ${row.isSection ? 'bg-slate-100' : ''}`}>
-                        {reportColumns.map((column) => (
-                          <td key={column.key} className="border border-slate-300 p-1">
-                            {column.key === "test" && (
-                              <Input
-                                value={row.test}
-                                onChange={(e) => handleTestChange(i, "test", e.target.value)}
-                                className={`h-8 border-none shadow-none focus-visible:ring-1 ${row.isSection ? 'font-bold' : ''}`}
-                              />
-                            )}
-                            {column.key === "result" && !row.isSection && (
-                              <Input value={row.result} onChange={(e) => handleTestChange(i, "result", e.target.value)} className="h-8 border-none shadow-none focus-visible:ring-1 bg-yellow-50" />
-                            )}
-                            {column.key === "units" && !row.isSection && (
-                              <Input
-                                value={row.isTwoCol ? "" : (row.units || "")}
-                                onChange={(e) => handleTestChange(i, "units", e.target.value)}
-                                disabled={row.isTwoCol}
-                                className="h-8 border-none shadow-none focus-visible:ring-1 disabled:bg-slate-100"
-                              />
-                            )}
-                            {column.key === "normalValue" && !row.isSection && (
-                              <textarea
-                                value={row.isTwoCol ? "" : (row.normalValue || "")}
-                                onChange={(e) => handleTestChange(i, "normalValue", e.target.value)}
-                                disabled={row.isTwoCol}
-                                className="w-full min-h-8 p-1 text-sm border-none shadow-none focus-visible:outline-none focus-visible:ring-1 resize-none disabled:bg-slate-100"
-                              />
-                            )}
-                          </td>
-                        ))}
-                        <td className="border border-slate-300 p-1 text-center">
-                          <Button variant="ghost" size="icon" onClick={() => removeTestRow(i)} className="h-8 w-8 text-red-500 hover:text-red-700">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/*
+                Each selected report template now renders as its own table,
+                with its own column headers, instead of one flat table forced
+                to use a single template's columns. This is what makes
+                multiple selected reports display correctly, each according
+                to its own parameters, without visual or data conflicts.
+              */}
+              <div className="overflow-x-auto space-y-6">
+                {(() => {
+                  let globalIndex = -1;
+                  const groupedTables = groupRowsIntoTables(testResults, reportColumns);
+                  return groupedTables.map((table, tIdx) => (
+                    <div key={tIdx} className="rounded-lg border border-slate-200 overflow-hidden shadow-sm">
+                      <table className="w-full border-collapse min-w-150">
+                        <thead>
+                          <tr className="bg-slate-800 text-sm text-white">
+                            {table.columns.map((column) => (
+                              <th key={column.key} className="p-2 border border-slate-700 text-left font-semibold tracking-wide">
+                                {column.key === "test" ? "Test Name / Section" : column.label}
+                              </th>
+                            ))}
+                            <th className="p-2 border border-slate-700 text-center w-12">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {table.rows.map((row) => {
+                            globalIndex += 1;
+                            const i = globalIndex;
+                            return (
+                              <tr key={row.id || i} className={`text-sm ${row.isSection ? 'bg-emerald-50' : 'odd:bg-white even:bg-slate-50'}`}>
+                                {table.columns.map((column) => (
+                                  <td key={column.key} className="border border-slate-200 p-1">
+                                    {column.key === "test" && (
+                                      <Input
+                                        value={row.test}
+                                        onChange={(e) => handleTestChange(i, "test", e.target.value)}
+                                        className={`h-8 border-none shadow-none focus-visible:ring-1 ${row.isSection ? 'font-bold uppercase text-[#114a2f]' : ''}`}
+                                      />
+                                    )}
+                                    {column.key === "result" && !row.isSection && (
+                                      <Input value={row.result} onChange={(e) => handleTestChange(i, "result", e.target.value)} className="h-8 border-none shadow-none focus-visible:ring-1 bg-yellow-50" />
+                                    )}
+                                    {column.key === "units" && !row.isSection && (
+                                      <Input
+                                        value={row.isTwoCol ? "" : (row.units || "")}
+                                        onChange={(e) => handleTestChange(i, "units", e.target.value)}
+                                        disabled={row.isTwoCol}
+                                        className="h-8 border-none shadow-none focus-visible:ring-1 disabled:bg-slate-100"
+                                      />
+                                    )}
+                                    {column.key === "normalValue" && !row.isSection && (
+                                      <textarea
+                                        value={row.isTwoCol ? "" : (row.normalValue || "")}
+                                        onChange={(e) => handleTestChange(i, "normalValue", e.target.value)}
+                                        disabled={row.isTwoCol}
+                                        className="w-full min-h-8 p-1 text-sm border-none shadow-none focus-visible:outline-none focus-visible:ring-1 resize-none disabled:bg-slate-100"
+                                      />
+                                    )}
+                                  </td>
+                                ))}
+                                <td className="border border-slate-200 p-1 text-center">
+                                  <Button variant="ghost" size="icon" onClick={() => removeTestRow(i)} className="h-8 w-8 text-red-500 hover:text-red-700">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ));
+                })()}
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Button onClick={addTestRow} variant="outline" className="flex-1 border-dashed border-2 text-slate-600">
                     <Plus className="w-4 h-4 mr-2" /> Add Test Row
@@ -1109,67 +1165,76 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                 )}
 
                 {groupRowsIntoTables(pageRows, reportColumns).map((table, tIdx) => (
-                  <table key={tIdx} className="w-full text-[13px] border-collapse mb-3">
-                    <thead>
-                      <tr>
-                        {table.columns.map((column) => (
-                          <th
-                            key={column.key}
-                            className={`p-1 border-b border-black font-bold ${column.key === "test" ? "text-left" : "text-center"}`}
-                          >
-                            {column.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {table.rows.map((result) => {
-                        if (result.test === "Spacer") {
-                          return (
-                            <tr key={result.id || createUniqueRowId()}>
-                              <td colSpan={table.columns.length} className="h-3 border border-black bg-white"></td>
-                            </tr>
-                          );
-                        }
-                        
-                        if (result.isSection) {
-                          return (
-                            <tr key={result.id || createUniqueRowId()}>
-                              <td colSpan={table.columns.length} className="p-1 border border-black font-bold bg-white text-left whitespace-pre-wrap">
-                                {result.test}
-                              </td>
-                            </tr>
-                          );
-                        }
+                  <div key={tIdx} className={tIdx > 0 ? "mt-7" : ""}>
+                    {tIdx > 0 && (
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="h-[2px] flex-1" style={{ backgroundColor: branding.primaryColor, opacity: 0.35 }} />
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: branding.primaryColor, opacity: 0.5 }} />
+                        <span className="h-[2px] flex-1" style={{ backgroundColor: branding.primaryColor, opacity: 0.35 }} />
+                      </div>
+                    )}
+                    <table className="w-full text-[13px] border-collapse mb-3">
+                      <thead>
+                        <tr className="bg-slate-50">
+                          {table.columns.map((column) => (
+                            <th
+                              key={column.key}
+                              className={`p-1 border-b border-black font-bold ${column.key === "test" ? "text-left" : "text-center"}`}
+                            >
+                              {column.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {table.rows.map((result) => {
+                          if (result.test === "Spacer") {
+                            return (
+                              <tr key={result.id || createUniqueRowId()}>
+                                <td colSpan={table.columns.length} className="h-3 border border-black bg-white"></td>
+                              </tr>
+                            );
+                          }
 
-                        if (result.isTwoCol) {
+                          if (result.isSection) {
+                            return (
+                              <tr key={result.id || createUniqueRowId()}>
+                                <td colSpan={table.columns.length} className="p-1.5 border border-black font-bold bg-slate-100 text-left uppercase tracking-wide text-[12px] whitespace-pre-wrap">
+                                  {result.test}
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          if (result.isTwoCol) {
+                            return (
+                              <tr key={result.id || createUniqueRowId()}>
+                                <td className="p-1 border border-black font-bold">
+                                  {result.test}
+                                </td>
+                                <td colSpan={table.columns.length - 1} className="p-1 border border-black font-bold text-center">
+                                  {result.result || ""}
+                                </td>
+                              </tr>
+                            );
+                          }
+
                           return (
                             <tr key={result.id || createUniqueRowId()}>
-                              <td className="p-1 border border-black font-bold">
-                                {result.test}
-                              </td>
-                              <td colSpan={table.columns.length - 1} className="p-1 border border-black font-bold text-center">
-                                {result.result || ""}
-                              </td>
+                              {table.columns.map((column) => (
+                                <td
+                                  key={column.key}
+                                  className={`p-1 border border-black font-bold ${column.key === "test" ? "" : "text-center"} ${column.key === "normalValue" ? "whitespace-pre-line leading-tight text-[12px]" : ""}`}
+                                >
+                                  {result[column.key] || ""}
+                                </td>
+                              ))}
                             </tr>
                           );
-                        }
-
-                        return (
-                          <tr key={result.id || createUniqueRowId()}>
-                            {table.columns.map((column) => (
-                              <td
-                                key={column.key}
-                                className={`p-1 border border-black font-bold ${column.key === "test" ? "" : "text-center"} ${column.key === "normalValue" ? "whitespace-pre-line leading-tight text-[12px]" : ""}`}
-                              >
-                                {result[column.key] || ""}
-                              </td>
-                            ))}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ))}
 
                 {isLastPage && formData.findings && 
