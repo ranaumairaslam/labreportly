@@ -271,7 +271,7 @@ export function LandingPage() {
                   </div>
                   <ul className="mt-6 space-y-3 border-t border-slate-100 pt-5">
                     <li className="text-xs flex items-center gap-2 text-[#004d26] font-bold bg-emerald-50 p-2 rounded-lg">
-                      < some Icon={Gift} className="w-4 h-4 shrink-0 text-[#004d26]" />Includes Free Pathologist Followup
+<Gift className="w-4 h-4 shrink-0 text-[#004d26]" />Includes Free Pathologist Followup
                     </li>
                     <li className="text-sm font-medium text-slate-600 flex items-center gap-2">
                       <CheckCircle className="w-4 h-4 text-[#004d26] shrink-0" /> Up to {plan.pinQuota.toLocaleString()} Bio-Markers Included

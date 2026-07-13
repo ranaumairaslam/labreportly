@@ -8,9 +8,38 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { FileText, Menu, Plus, Printer, Search, Settings, Trash2, X } from "lucide-react";
+import {
+  FileText,
+  Menu,
+  Plus,
+  Printer,
+  Search,
+  Settings,
+  Trash2,
+  X,
+  Check,
+  ChevronDown,
+  Users,
+  FlaskConical,
+  ClipboardCheck,
+  Wallet,
+  LayoutDashboard,
+  UserPlus,
+  ListChecks,
+  BarChart3,
+  ShieldCheck,
+  Phone,
+  CalendarDays,
+  UserRound,
+  Receipt,
+  Banknote,
+  AlertTriangle,
+  IdCard,
+  ReceiptText,
+} from "lucide-react";
 import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
 import { readStoredBranding, storeBranding, normalizeBranding } from "@/lib/dashboardBranding";
+import LabReportTemplate from "../template/page";
 
 
 function createPaymentId(prefix, existingPayments = []) {
@@ -59,13 +88,47 @@ function formatPKR(value) {
   return value.toLocaleString("en-PK");
 }
 
-/* Desig bbn Philosophy: Clinical Elegance
-   - Green (#004d26) and yellow (#FBBF24) color palette maintained
-   - Soft shadows and subtle gradients for depth
-   - Responsive grid layout with generous whitespace
-   - Smooth transitions between sidebar sections (250ms ease-out)
-   - Status indicators use color psychology (green/yellow/red)
+/* Design Philosophy: Clinical Precision
+   - Deep clinical green (#004d26) with a warm amber accent (#FBBF24), refined against
+     a cool neutral (slate) canvas so the brand color reads as intentional, not loud.
+   - Lab identifiers and report numbers are set in monospace, like specimen labels.
+   - Status is always communicated with a color + a dot + a word, never color alone.
+   - Cards use a single consistent elevation system (border + soft shadow on hover).
+   - Motion is restrained: 150-200ms ease transitions on hover/focus only.
 */
+
+// Lookup used only for presentational stat icons on the Overview screen.
+const STAT_ICONS = {
+  "Today's Patients": Users,
+  "Pending Tests": FlaskConical,
+  "Completed Reports": ClipboardCheck,
+  "Revenue (PKR)": Wallet,
+};
+
+const NAV_ICONS = {
+  "Overview": LayoutDashboard,
+  "New Registration": UserPlus,
+  "Patient Records": IdCard,
+  "Revenue": Wallet,
+  "Reports": BarChart3,
+};
+
+function StatusBadge({ status }) {
+  const statusMap = {
+    Processing: { dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50", ring: "ring-amber-200" },
+    Pending: { dot: "bg-orange-500", text: "text-orange-700", bg: "bg-orange-50", ring: "ring-orange-200" },
+    Completed: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50", ring: "ring-emerald-200" },
+    Received: { dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50", ring: "ring-emerald-200" },
+    Overdue: { dot: "bg-red-500", text: "text-red-700", bg: "bg-red-50", ring: "ring-red-200" },
+  };
+  const style = statusMap[status] || { dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-100", ring: "ring-slate-200" };
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset ${style.bg} ${style.text} ${style.ring}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
+      {status}
+    </span>
+  );
+}
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("Overview");
@@ -73,6 +136,8 @@ export default function Home() {
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
   const [branding, setBranding] = useState(readStoredBranding);
   const [patientSearch, setPatientSearch] = useState("");
+  const [recordsSearch, setRecordsSearch] = useState("");
+  const [recordsStatusFilter, setRecordsStatusFilter] = useState("all");
   const [isStaffFormOpen, setIsStaffFormOpen] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: "", email: "", password: "", role: "Staff" });
   const [isCreatingStaff, setIsCreatingStaff] = useState(false);
@@ -88,9 +153,73 @@ export default function Home() {
   const [regTests, setRegTests] = useState("");
   const [regTotalBill, setRegTotalBill] = useState("");
   const [regAdvancePaid, setRegAdvancePaid] = useState("");
+  const [regDiscountType, setRegDiscountType] = useState("flat");
+  const [regDiscountValue, setRegDiscountValue] = useState("");
+
+  // Report template multiselect states
+  const [reportTemplates, setReportTemplates] = useState([]);
+  const [isRegTemplateDropdownOpen, setIsRegTemplateDropdownOpen] = useState(false);
+  const [selectedRegTemplates, setSelectedRegTemplates] = useState([]);
+  const [regTemplateSearch, setRegTemplateSearch] = useState("");
+
+  // Inline report template editor session state
+  const [activeReportPatientData, setActiveReportPatientData] = useState(null);
 
   // Derived tracking variable for instantaneous math calculations
-  const regPendingBalance = Math.max(0, (parseInt(regTotalBill) || 0) - (parseInt(regAdvancePaid) || 0));
+  const discountAmount = regDiscountType === "percentage"
+    ? Math.round(((parseInt(regTotalBill) || 0) * (parseFloat(regDiscountValue) || 0)) / 100)
+    : (parseInt(regDiscountValue) || 0);
+
+  const regPendingBalance = Math.max(0, (parseInt(regTotalBill) || 0) - discountAmount - (parseInt(regAdvancePaid) || 0));
+
+  const handleRegTemplateToggle = (tpl) => {
+    setSelectedRegTemplates((prev) => {
+      const isAlreadySelected = prev.some((item) => item.key === tpl.key);
+      let next;
+      if (isAlreadySelected) {
+        next = prev.filter((item) => item.key !== tpl.key);
+      } else {
+        next = [...prev, tpl];
+      }
+      
+      const testNames = next.map((item) => item.label).join(", ");
+      setRegTests(testNames);
+      
+      if (next.length > 0) {
+        setRegSpecimen(next[0].specimen || "Blood");
+      } else {
+        setRegSpecimen("");
+      }
+      
+      return next;
+    });
+  };
+
+  const handleClearSelectedRegTemplates = () => {
+    setSelectedRegTemplates([]);
+    setRegTests("");
+    setRegSpecimen("");
+  };
+
+  const handleOpenReportEditor = (patient) => {
+    const isCompleted = (patient.status || "").toLowerCase() === "completed" || Boolean(patient.lastReportNumber);
+    const data = {
+      source: isCompleted ? "report" : "admin",
+      reportNumber: patient.lastReportNumber || `${patient.id}-${Date.now()}`,
+      patientId: patient.id,
+      patientName: patient.patient,
+      contact: patient.contact || "",
+      age: patient.age || "",
+      gender: patient.gender || "",
+      tests: patient.tests || "",
+      registeredAt: patient.registeredAt || "",
+      totalBill: String(patient.totalBill || ""),
+      pendingBalance: String(patient.pendingBalance || ""),
+      refDoctor: patient.refDoctor || "",
+      specimen: patient.specimen || "",
+    };
+    setActiveReportPatientData(data);
+  };
 
   // Finance state management
   const [advancePayments, setAdvancePayments] = useState([]);
@@ -183,10 +312,23 @@ export default function Home() {
       }
     }
 
+    async function loadReportTemplates() {
+      try {
+        const res = await fetch("/api/report-templates");
+        const data = await res.json();
+        if (res.ok && data.templates) {
+          setReportTemplates(data.templates);
+        }
+      } catch (err) {
+        console.warn("Could not load report templates", err);
+      }
+    }
+
     loadPatients();
     loadLabContext();
     loadStaffAccounts();
     loadReports();
+    loadReportTemplates();
   }, [currentLabId]);
 
   // Selected patient for interactive report generator modal
@@ -198,6 +340,7 @@ export default function Home() {
   const baseMenuItems = [
     { name: "Overview", icon: "📊" },
     { name: "New Registration", icon: "📝" },
+    { name: "Patient Records", icon: "🗂️" },
     { name: "Revenue", icon: "💰" },
     { name: "Reports", icon: "📈" },
   ];
@@ -258,6 +401,9 @@ export default function Home() {
       gender: regGender,
       tests: regTests,
       totalBill: currentBillTotal,
+      discountType: regDiscountType,
+      discountValue: parseFloat(regDiscountValue) || 0,
+      discountAmount: discountAmount,
       advancePaid: currentAdvancePaid,
       pendingBalance: regPendingBalance,
       registeredAt: regDateTime ? regDateTime.slice(0, 10) : new Date().toISOString().split('T')[0],
@@ -334,6 +480,9 @@ export default function Home() {
       setRegAdvancePaid("");
       setRegRefDoctor("");
       setRegSpecimen("");
+      setRegDiscountType("flat");
+      setRegDiscountValue("");
+      setSelectedRegTemplates([]);
       setRegDateTime(new Date().toISOString().slice(0, 16));
     } catch (err) {
       console.warn("Patient registration request failed.", err);
@@ -731,17 +880,32 @@ export default function Home() {
   const selectedPatientDetail = searchedPatients[0] || null;
   const selectedPatientPayments = selectedPatientDetail ? getPatientPaymentDetails(selectedPatientDetail) : null;
 
-  const getStatusBadge = (status) => {
-    const statusMap = {
-      "Processing": { bg: "bg-yellow-100", text: "text-yellow-800" },
-      "Pending": { bg: "bg-orange-100", text: "text-orange-800" },
-      "Completed": { bg: "bg-green-100", text: "text-green-800" },
-      "Received": { bg: "bg-green-100", text: "text-green-800" },
-      "Overdue": { bg: "bg-red-100", text: "text-red-800" },
-    };
-    const style = statusMap[status] || { bg: "bg-gray-100", text: "text-gray-800" };
-    return <span className={`px-3 py-1 rounded-full text-xs font-semibold ${style.bg} ${style.text}`}>{status}</span>;
-  };
+  const getStatusBadge = (status) => <StatusBadge status={status} />;
+
+  // Presentational filtering for the Patient Records section — full-detail view
+  // of every registered patient (examination, reference doctor, fees, specimen).
+  const normalizedRecordsSearch = recordsSearch.trim().toLowerCase();
+  const recordsFilteredPatients = testQueueData.filter((patient) => {
+    const matchesStatus =
+      recordsStatusFilter === "all" ||
+      (patient.status || "Pending").toLowerCase() === recordsStatusFilter.toLowerCase();
+    if (!matchesStatus) return false;
+    if (!normalizedRecordsSearch) return true;
+    const haystack = [
+      patient.id,
+      patient.patient,
+      patient.contact,
+      patient.refDoctor,
+      patient.specimen,
+      patient.tests,
+      patient.status,
+      patient.registeredAt,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(normalizedRecordsSearch);
+  });
 
   // Shared handler: takes a patient row and routes to the correct Reports action.
   // - If already completed, jump straight to the Reports tab so they can view it.
@@ -806,6 +970,8 @@ export default function Home() {
       setDeletingReportNumber(null);
     }
   };
+
+
   // Content Switching Router
   const renderContent = () => {
     switch (activeTab) {
@@ -814,15 +980,16 @@ export default function Home() {
           <div className="space-y-8 animate-in fade-in duration-200">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
-                <h2 className="text-3xl font-bold text-slate-800">Dashboard Overview</h2>
-                <p className="text-slate-500 text-sm mt-1">Welcome back, Admin Staff. Here&apos;s your lab status.</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700/70">Dashboard</p>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900 mt-1">Overview</h2>
+                <p className="text-slate-500 text-sm mt-1.5">Welcome back, Admin Staff — here&apos;s where the lab stands today.</p>
               </div>
               <div className="flex flex-wrap gap-3 w-full md:w-auto">
-                <Button onClick={() => setActiveTab("New Registration")} className="flex-1 md:flex-none bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
+                <Button onClick={() => setActiveTab("New Registration")} className="flex-1 md:flex-none bg-[#004d26] text-amber-300 hover:bg-[#00341a] rounded-lg shadow-sm font-semibold">
                   <Plus className="w-4 h-4 mr-2" />
                   New Patient
                 </Button>
-                <Button onClick={() => setIsStaffFormOpen((prev) => !prev)} variant="outline" className="border-slate-300 text-slate-700">
+                <Button onClick={() => setIsStaffFormOpen((prev) => !prev)} variant="outline" className="border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
                   <Plus className="w-4 h-4 mr-2" />
                   Create Staff
                 </Button>
@@ -830,46 +997,46 @@ export default function Home() {
             </div>
 
             {isStaffFormOpen && (
-              <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-bold text-slate-800">Create Staff Dashboard Account</h3>
-                    <p className="text-sm text-slate-500">This will create a unique email and password for a new staff dashboard login tied to your lab.</p>
+                    <h3 className="text-lg font-bold text-slate-900">Create staff dashboard account</h3>
+                    <p className="text-sm text-slate-500 mt-0.5">Gives a teammate their own login for the staff dashboard, tied to this lab.</p>
                   </div>
-                  <Button type="button" variant="ghost" onClick={() => setIsStaffFormOpen(false)} className="text-slate-500 hover:text-slate-700">
+                  <Button type="button" variant="ghost" onClick={() => setIsStaffFormOpen(false)} className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg">
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
                 <form onSubmit={handleCreateStaff} className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Staff Name</label>
-                    <Input value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} placeholder="e.g. Ali Khan" required />
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Staff name</label>
+                    <Input value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} placeholder="e.g. Ali Khan" required className="rounded-lg border-slate-300 focus-visible:ring-emerald-200" />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">Email</label>
-                    <Input type="email" value={staffForm.email} onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })} placeholder="staff@yourlab.com" required />
+                    <Input type="email" value={staffForm.email} onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })} placeholder="staff@yourlab.com" required className="rounded-lg border-slate-300 focus-visible:ring-emerald-200" />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">Password</label>
-                    <Input type="password" value={staffForm.password} onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })} placeholder="Create a secure password" required />
+                    <Input type="password" value={staffForm.password} onChange={(e) => setStaffForm({ ...staffForm, password: e.target.value })} placeholder="Create a secure password" required className="rounded-lg border-slate-300 focus-visible:ring-emerald-200" />
                   </div>
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">Role</label>
-                    <Input value={staffForm.role} onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value })} placeholder="Staff" />
+                    <Input value={staffForm.role} onChange={(e) => setStaffForm({ ...staffForm, role: e.target.value })} placeholder="Staff" className="rounded-lg border-slate-300 focus-visible:ring-emerald-200" />
                   </div>
                   <div className="md:col-span-2 flex justify-end">
-                    <Button type="submit" disabled={isCreatingStaff} className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
-                      {isCreatingStaff ? "Creating..." : "Create Staff Account"}
+                    <Button type="submit" disabled={isCreatingStaff} className="bg-[#004d26] text-amber-300 hover:bg-[#00341a] rounded-lg font-semibold">
+                      {isCreatingStaff ? "Creating…" : "Create staff account"}
                     </Button>
                   </div>
                 </form>
               </div>
             )}
 
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 space-y-5">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-slate-800 text-lg">Find Patient Details</h3>
+                  <h3 className="font-bold text-slate-900 text-lg">Find patient details</h3>
                   <p className="text-slate-500 text-sm mt-1">Search by lab ID, patient name, contact, test, receipt, or invoice.</p>
                 </div>
                 <div className="relative w-full lg:max-w-md">
@@ -877,8 +1044,8 @@ export default function Home() {
                   <Input
                     value={patientSearch}
                     onChange={(e) => setPatientSearch(e.target.value)}
-                    placeholder="Search patient details..."
-                    className="h-10 border-slate-300 pl-9 pr-9 text-slate-800"
+                    placeholder="Search patient details…"
+                    className="h-10 rounded-lg border-slate-300 pl-9 pr-9 text-slate-800 focus-visible:ring-emerald-200"
                   />
                   {patientSearch && (
                     <button
@@ -895,239 +1062,353 @@ export default function Home() {
 
               {normalizedPatientSearch && (
                 selectedPatientDetail ? (
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-5 space-y-5">
-                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Matched Patient</p>
-                        <h4 className="text-2xl font-bold text-slate-800 mt-1">{selectedPatientDetail.patient}</h4>
-                        <p className="text-sm text-slate-600 mt-1">Lab ID: {selectedPatientDetail.id}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(selectedPatientDetail.status)}
-                        {searchedPatients.length > 1 && (
-                          <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100">
-                            {searchedPatients.length} matches
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Contact</p>
-                        <p className="font-semibold text-slate-800 mt-1">{selectedPatientDetail.contact || "N/A"}</p>
-                      </div>
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Age / Gender</p>
-                        <p className="font-semibold text-slate-800 mt-1">{selectedPatientDetail.age || "N/A"} / {selectedPatientDetail.gender || "N/A"}</p>
-                      </div>
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Registered</p>
-                        <p className="font-semibold text-slate-800 mt-1">{selectedPatientDetail.registeredAt || "N/A"}</p>
-                      </div>
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Tests</p>
-                        <p className="font-semibold text-slate-800 mt-1">{selectedPatientDetail.tests}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Total Bill</p>
-                        <p className="text-xl font-bold text-slate-800 mt-1">PKR {selectedPatientPayments.totalBill.toLocaleString()}</p>
-                      </div>
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Advance Received</p>
-                        <p className="text-xl font-bold text-emerald-700 mt-1">PKR {selectedPatientPayments.advanceTotal.toLocaleString()}</p>
-                      </div>
-                      <div className="rounded-lg bg-white border border-slate-100 p-4">
-                        <p className="text-xs font-bold uppercase text-slate-500">Pending Balance</p>
-                        <p className="text-xl font-bold text-red-700 mt-1">PKR {selectedPatientPayments.pendingBalance.toLocaleString()}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <div className="rounded-lg bg-white border border-slate-100 overflow-hidden">
-                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 text-sm font-bold text-slate-700">Advance Receipts</div>
-                        <div className="divide-y divide-slate-100">
-                          {selectedPatientPayments.advances.length ? selectedPatientPayments.advances.map((payment) => (
-                            <div key={payment.id} className="px-4 py-3 flex justify-between gap-3 text-sm">
-                              <div>
-                                <p className="font-semibold text-slate-700">{payment.id}</p>
-                                <p className="text-xs text-slate-500">{payment.date} - {payment.status}</p>
-                              </div>
-                              <p className="font-bold text-emerald-700">PKR {payment.amount.toLocaleString()}</p>
+                  <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+                    {/* Identity header — reads like a lab record card */}
+                    <div className="relative px-6 py-5 bg-[#004d26] overflow-hidden">
+                      <div className="absolute -right-8 -top-10 h-36 w-36 rounded-full bg-white/5" />
+                      <div className="absolute -right-2 bottom-0 h-20 w-20 rounded-full bg-white/5" />
+                      <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <div className="h-14 w-14 shrink-0 rounded-2xl bg-amber-300 text-[#004d26] flex items-center justify-center text-lg font-black uppercase shadow-inner">
+                            {(selectedPatientDetail.patient || "?").slice(0, 2)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-200/70">Matched patient record</p>
+                            <h4 className="text-2xl font-bold text-white mt-0.5 truncate">{selectedPatientDetail.patient}</h4>
+                            <div className="flex items-center gap-1.5 mt-1 text-emerald-100/80">
+                              <IdCard className="h-3.5 w-3.5" />
+                              <p className="text-xs font-mono tracking-wide">{selectedPatientDetail.id}</p>
                             </div>
-                          )) : (
-                            <p className="px-4 py-3 text-sm text-slate-500">No advance receipt found.</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {searchedPatients.length > 1 && (
+                            <Badge className="bg-white/10 text-emerald-50 hover:bg-white/10 rounded-full font-medium border-0">
+                              {searchedPatients.length} matches
+                            </Badge>
                           )}
+                          <span className="rounded-full bg-white px-3 py-1">{getStatusBadge(selectedPatientDetail.status)}</span>
                         </div>
                       </div>
+                    </div>
 
-                      <div className="rounded-lg bg-white border border-slate-100 overflow-hidden">
-                        <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 text-sm font-bold text-slate-700">Pending Invoices</div>
-                        <div className="divide-y divide-slate-100">
-                          {selectedPatientPayments.pendings.length ? selectedPatientPayments.pendings.map((payment) => (
-                            <div key={payment.id} className="px-4 py-3 flex justify-between gap-3 text-sm">
-                              <div>
-                                <p className="font-semibold text-slate-700">{payment.id}</p>
-                                <p className="text-xs text-slate-500">Due {payment.dueDate} - {payment.status}</p>
-                              </div>
-                              <p className="font-bold text-red-700">PKR {payment.amount.toLocaleString()}</p>
+                    <div className="p-6 space-y-6 bg-slate-50/50">
+                      {/* Quick facts strip */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        {[
+                          { label: "Contact", value: selectedPatientDetail.contact || "N/A", icon: Phone },
+                          { label: "Age / Gender", value: `${selectedPatientDetail.age || "N/A"} · ${selectedPatientDetail.gender || "N/A"}`, icon: UserRound },
+                          { label: "Registered", value: selectedPatientDetail.registeredAt || "N/A", icon: CalendarDays },
+                          { label: "Tests", value: selectedPatientDetail.tests, icon: FlaskConical },
+                        ].map((fact, idx) => (
+                          <div key={idx} className="rounded-xl bg-white border border-slate-200 p-4 flex items-start gap-3">
+                            <span className="h-8 w-8 shrink-0 rounded-lg bg-emerald-50 flex items-center justify-center">
+                              <fact.icon className="h-4 w-4 text-[#004d26]" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{fact.label}</p>
+                              <p className="font-semibold text-slate-800 text-sm mt-0.5 truncate" title={fact.value}>{fact.value}</p>
                             </div>
-                          )) : (
-                            <p className="px-4 py-3 text-sm text-slate-500">No pending invoice found.</p>
-                          )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Billing summary with a visual settlement bar */}
+                      <div className="rounded-xl bg-white border border-slate-200 p-5">
+                        <div className="flex items-center justify-between mb-4">
+                          <p className="text-sm font-bold text-slate-800">Billing summary</p>
+                          <p className="text-xs text-slate-400 font-medium">
+                            {selectedPatientPayments.totalBill > 0
+                              ? `${Math.round((selectedPatientPayments.advanceTotal / selectedPatientPayments.totalBill) * 100)}% settled`
+                              : "No bill recorded"}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="flex items-center gap-3">
+                            <span className="h-10 w-10 shrink-0 rounded-xl bg-slate-100 flex items-center justify-center">
+                              <Receipt className="h-4 w-4 text-slate-600" />
+                            </span>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Total bill</p>
+                              <p className="text-lg font-bold text-slate-900 tabular-nums">PKR {selectedPatientPayments.totalBill.toLocaleString()}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="h-10 w-10 shrink-0 rounded-xl bg-emerald-50 flex items-center justify-center">
+                              <Banknote className="h-4 w-4 text-emerald-600" />
+                            </span>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Advance received</p>
+                              <p className="text-lg font-bold text-emerald-700 tabular-nums">PKR {selectedPatientPayments.advanceTotal.toLocaleString()}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="h-10 w-10 shrink-0 rounded-xl bg-red-50 flex items-center justify-center">
+                              <AlertTriangle className="h-4 w-4 text-red-500" />
+                            </span>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Pending balance</p>
+                              <p className="text-lg font-bold text-red-600 tabular-nums">PKR {selectedPatientPayments.pendingBalance.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {selectedPatientPayments.totalBill > 0 && (
+                          <div className="mt-5">
+                            <div className="h-2 w-full rounded-full bg-red-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                                style={{
+                                  width: `${Math.min(100, Math.round((selectedPatientPayments.advanceTotal / selectedPatientPayments.totalBill) * 100))}%`,
+                                }}
+                              />
+                            </div>
+                            <div className="flex justify-between mt-1.5">
+                              <span className="text-[10px] font-semibold text-emerald-600">Received</span>
+                              <span className="text-[10px] font-semibold text-red-500">Outstanding</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Receipts & invoices */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+                          <div className="px-4 py-3 bg-emerald-50/60 border-b border-slate-200 flex items-center gap-2">
+                            <ReceiptText className="h-4 w-4 text-emerald-700" />
+                            <p className="text-sm font-bold text-slate-800">Advance receipts</p>
+                            <span className="ml-auto text-[10px] font-bold text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5">
+                              {selectedPatientPayments.advances.length}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                            {selectedPatientPayments.advances.length ? selectedPatientPayments.advances.map((payment) => (
+                              <div key={payment.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm hover:bg-slate-50/70 transition-colors">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-slate-700 font-mono text-xs truncate">{payment.id}</p>
+                                    <p className="text-xs text-slate-500 mt-0.5">{payment.date} · {payment.status}</p>
+                                  </div>
+                                </div>
+                                <p className="font-bold text-emerald-700 tabular-nums shrink-0">PKR {payment.amount.toLocaleString()}</p>
+                              </div>
+                            )) : (
+                              <p className="px-4 py-6 text-sm text-slate-400 text-center">No advance receipt found.</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl bg-white border border-slate-200 overflow-hidden">
+                          <div className="px-4 py-3 bg-red-50/60 border-b border-slate-200 flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 text-red-600" />
+                            <p className="text-sm font-bold text-slate-800">Pending invoices</p>
+                            <span className="ml-auto text-[10px] font-bold text-red-700 bg-red-100 rounded-full px-2 py-0.5">
+                              {selectedPatientPayments.pendings.length}
+                            </span>
+                          </div>
+                          <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                            {selectedPatientPayments.pendings.length ? selectedPatientPayments.pendings.map((payment) => (
+                              <div key={payment.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm hover:bg-slate-50/70 transition-colors">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" />
+                                  <div className="min-w-0">
+                                    <p className="font-semibold text-slate-700 font-mono text-xs truncate">{payment.id}</p>
+                                    <p className="text-xs text-slate-500 mt-0.5">Due {payment.dueDate} · {payment.status}</p>
+                                  </div>
+                                </div>
+                                <p className="font-bold text-red-600 tabular-nums shrink-0">PKR {payment.amount.toLocaleString()}</p>
+                              </div>
+                            )) : (
+                              <p className="px-4 py-6 text-sm text-slate-400 text-center">No pending invoice found.</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
-                    No patient found for &quot;{patientSearch}&quot;.
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+                    <Search className="h-6 w-6 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-500">No patient found for &quot;{patientSearch}&quot;.</p>
                   </div>
                 )
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-800">Lab Staff Accounts</h3>
-                  <p className="text-sm text-slate-500">Accounts created here can use the staff dashboard login.</p>
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <ShieldCheck className="h-4 w-4 text-[#004d26]" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900">Lab staff accounts</h3>
+                    <p className="text-sm text-slate-500">Accounts created here can sign in to the staff dashboard.</p>
+                  </div>
                 </div>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {labStaff.length ? labStaff.map((staff) => (
-                  <div key={staff.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-800">{staff.name}</p>
-                        <p className="text-sm text-slate-500">{staff.email}</p>
+                  <div key={staff.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-full bg-[#004d26] text-amber-300 flex items-center justify-center text-xs font-bold uppercase">
+                        {(staff.name || "?").slice(0, 2)}
                       </div>
-                      <Badge className="bg-[#004d26] text-yellow-400 hover:bg-[#004d26]">{staff.role || "Staff"}</Badge>
+                      <div>
+                        <p className="font-semibold text-slate-800 text-sm">{staff.name}</p>
+                        <p className="text-xs text-slate-500">{staff.email}</p>
+                      </div>
                     </div>
+                    <Badge className="bg-[#004d26] text-amber-300 hover:bg-[#004d26] rounded-full font-semibold">{staff.role || "Staff"}</Badge>
                   </div>
                 )) : (
-                  <p className="text-sm text-slate-500">No staff accounts created yet.</p>
+                  <p className="text-sm text-slate-500 py-2">No staff accounts created yet.</p>
                 )}
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {stats.map((stat, i) => (
-                <div key={i} className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 group">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">{stat.label}</p>
-                      <h3 className="text-3xl font-bold text-slate-800 mt-2">{stat.value}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+              {stats.map((stat, i) => {
+                const StatIcon = STAT_ICONS[stat.label] || Wallet;
+                const accentMap = {
+                  positive: { chip: "bg-emerald-50 text-emerald-700", text: "text-emerald-600" },
+                  warning: { chip: "bg-amber-50 text-amber-700", text: "text-amber-600" },
+                  info: { chip: "bg-sky-50 text-sky-700", text: "text-sky-600" },
+                  neutral: { chip: "bg-slate-100 text-slate-700", text: "text-slate-500" },
+                };
+                const accent = accentMap[stat.type] || accentMap.neutral;
+                return (
+                  <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 group">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">{stat.label}</p>
+                        <h3 className="text-3xl font-bold text-slate-900 mt-2 tabular-nums">{stat.value}</h3>
+                      </div>
+                      <span className={`h-11 w-11 rounded-xl flex items-center justify-center ${accent.chip} group-hover:scale-105 transition-transform duration-200`}>
+                        <StatIcon className="h-5 w-5" />
+                      </span>
                     </div>
-                    <span className="text-3xl group-hover:scale-110 transition-transform duration-300">{stat.icon}</span>
+                    {stat.change && (
+                      <p className={`text-xs mt-3 font-semibold ${accent.text}`}>
+                        {stat.change}
+                      </p>
+                    )}
                   </div>
-                  <p className={`text-xs mt-3 font-semibold ${
-                    stat.type === "positive" ? "text-green-600" : 
-                    stat.type === "warning" ? "text-yellow-600" : 
-                    stat.type === "info" ? "text-blue-600" : "text-slate-600"
-                  }`}>
-                    {stat.change}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 bg-white rounded-xl shadow-md border border-slate-100 overflow-hidden">
-                <div className="p-6 border-b border-slate-100 bg-slate-50">
-                  <h3 className="font-bold text-slate-700 text-lg">Recent Test Queue</h3>
+              <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-900 text-lg">Recent test queue</h3>
+                  <button onClick={() => setActiveTab("Test Queue")} className="text-xs font-semibold text-[#004d26] hover:underline">View all</button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-widest border-b border-slate-100">
+                    <thead className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-bold tracking-widest border-b border-slate-100">
                       <tr>
-                        <th className="px-6 py-4">Lab ID</th>
-                        <th className="px-6 py-4">Patient</th>
-                        <th className="px-6 py-4">Tests</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4">Action</th>
+                        <th className="px-6 py-3.5">Lab ID</th>
+                        <th className="px-6 py-3.5">Patient</th>
+                        <th className="px-6 py-3.5">Tests</th>
+                        <th className="px-6 py-3.5">Status</th>
+                        <th className="px-6 py-3.5">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {testQueueData.slice(-4).reverse().map((row, i) => (
-                        <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 font-semibold text-slate-700">{row.id}</td>
-                          <td className="px-6 py-4 text-slate-600">{row.patient}</td>
-                          <td className="px-6 py-4 text-slate-600 text-xs">{row.tests}</td>
+                        <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="px-6 py-4 font-semibold text-slate-700 font-mono text-xs">{row.id}</td>
+                          <td className="px-6 py-4 text-slate-700 font-medium">{row.patient}</td>
+                          <td className="px-6 py-4 text-slate-500 text-xs">{row.tests}</td>
                           <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
-                          <td className="px-6 py-4 flex items-center gap-2">
-                            <Button 
-                              asChild
-                              variant="ghost" 
-                              className="text-blue-600 text-xs font-semibold hover:text-blue-800"
-                            >
-                              <Link href={getPatientReportHref(row)}>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-1">
+                              <Button 
+                                variant="ghost" 
+                                onClick={() => handleOpenReportEditor(row)}
+                                className="text-[#004d26] text-xs font-semibold hover:text-[#00341a] hover:bg-emerald-50 rounded-lg h-8 px-2.5"
+                              >
                                 {row.action}
-                              </Link>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() => handleDeletePatient(row.id)}
-                              disabled={deletingPatientId === row.id}
-                              className="text-red-600 text-xs font-semibold hover:text-red-800"
-                            >
-                              <Trash2 className="w-4 h-4 mr-1" />
-                              {deletingPatientId === row.id ? "Deleting" : "Delete"}
-                            </Button>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                onClick={() => handleDeletePatient(row.id)}
+                                disabled={deletingPatientId === row.id}
+                                className="text-red-600 text-xs font-semibold hover:text-red-700 hover:bg-red-50 rounded-lg h-8 px-2.5"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                                {deletingPatientId === row.id ? "Deleting" : "Delete"}
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
+                      {!testQueueData.length && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-400">No patients registered yet.</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="bg-linear-to-br from-green-50 to-white rounded-xl shadow-sm border border-green-100 p-6">
-                  <p className="text-green-600 text-xs font-semibold uppercase">Tests Completed</p>
-                  <h4 className="text-3xl font-bold text-green-700 mt-2"></h4>
-                  <p className="text-green-600 text-xs mt-2">This month</p>
+              <div className="space-y-5">
+                <div className="rounded-2xl shadow-sm border border-emerald-100 p-6 bg-gradient-to-br from-emerald-50 via-emerald-50/60 to-white">
+                  <div className="flex items-center justify-between">
+                    <p className="text-emerald-700 text-[11px] font-bold uppercase tracking-wider">Tests completed</p>
+                    <ClipboardCheck className="h-4 w-4 text-emerald-600" />
+                  </div>
+                  <h4 className="text-3xl font-bold text-emerald-800 mt-2 tabular-nums">{formatNumber(completedReports.length)}</h4>
+                  <p className="text-emerald-600/80 text-xs mt-2">All time, this lab</p>
                 </div>
-                <div className="bg-linear-to-br from-yellow-50 to-white rounded-xl shadow-sm border border-yellow-100 p-6">
-                  <p className="text-yellow-600 text-xs font-semibold uppercase">Pending Review</p>
-                  <h4 className="text-3xl font-bold text-yellow-700 mt-2"></h4>
-                  <p className="text-yellow-600 text-xs mt-2">Requires attention</p>
+                <div className="rounded-2xl shadow-sm border border-amber-100 p-6 bg-gradient-to-br from-amber-50 via-amber-50/60 to-white">
+                  <div className="flex items-center justify-between">
+                    <p className="text-amber-700 text-[11px] font-bold uppercase tracking-wider">Pending review</p>
+                    <FlaskConical className="h-4 w-4 text-amber-600" />
+                  </div>
+                  <h4 className="text-3xl font-bold text-amber-800 mt-2 tabular-nums">{formatNumber(pendingTests.length)}</h4>
+                  <p className="text-amber-600/80 text-xs mt-2">Requires attention</p>
                 </div>
               </div>
             </div>
           </div>
         );
 
-    case "New Registration":
+  case "New Registration":
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       <div>
-        <h2 className="text-3xl font-bold text-slate-800">New Patient Registration</h2>
-        <p className="text-slate-500 text-sm mt-1">Register a new patient for laboratory tests and automate billing records.</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700/70">Intake</p>
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900 mt-1">New patient registration</h2>
+        <p className="text-slate-500 text-sm mt-1.5">Register a new patient for laboratory tests and automate billing records.</p>
       </div>
-      <div className="bg-white rounded-xl shadow-md border border-slate-100 p-8">
-        <form className="space-y-6" onSubmit={handlePatientRegistrationSubmit}>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-8">
+        <form className="space-y-7" onSubmit={handlePatientRegistrationSubmit}>
           
-          <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2">1. Patient Information</h3>
+          <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#004d26] text-amber-300 text-[11px] font-bold">1</span>
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Patient information</h3>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Full Name</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Full name</label>
               <Input 
                 placeholder="Enter patient's full name" 
-                className="border-slate-300" 
+                className="border-slate-300 rounded-lg focus-visible:ring-emerald-200" 
                 value={regName}
                 onChange={(e) => setRegName(e.target.value)}
                 required 
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Contact Number</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Contact number</label>
               <Input 
                 placeholder="+92 300 1234567" 
-                className="border-slate-300" 
+                className="border-slate-300 rounded-lg focus-visible:ring-emerald-200" 
                 value={regContact}
                 onChange={(e) => setRegContact(e.target.value)}
                 required 
@@ -1137,7 +1418,7 @@ export default function Home() {
               <div className="md:col-span-2 p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-3 animate-in fade-in duration-200">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800">
-                    Matching Patient Profile(s) Found ({uniqueMatchingPatients.length})
+                    Matching patient profile(s) found ({uniqueMatchingPatients.length})
                   </h4>
                   <p className="text-[10px] text-slate-500">Click a profile to auto-fill details</p>
                 </div>
@@ -1178,7 +1459,7 @@ export default function Home() {
               <label className="block text-sm font-semibold text-slate-700 mb-2">Age / DoB</label>
               <Input 
                 placeholder="e.g. 45 Years" 
-                className="border-slate-300" 
+                className="border-slate-300 rounded-lg focus-visible:ring-emerald-200" 
                 value={regAge}
                 onChange={(e) => setRegAge(e.target.value)}
               />
@@ -1186,7 +1467,7 @@ export default function Home() {
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Gender</label>
               <Select value={regGender} onValueChange={(val) => setRegGender(val)}>
-                <SelectTrigger className="border-slate-300 text-black">
+                <SelectTrigger className="border-slate-300 rounded-lg text-black">
                   <SelectValue placeholder="Select gender" />
                 </SelectTrigger>
                 <SelectContent className="border-slate-300 text-black mt-5">
@@ -1196,22 +1477,20 @@ export default function Home() {
                 </SelectContent>
               </Select>
             </div>
-            {/* Added: Reference Doctor Field */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Reference Doctor</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Reference doctor</label>
               <Input 
                 placeholder="e.g. Dr. Muhammad Ali or Self" 
-                className="border-slate-300" 
+                className="border-slate-300 rounded-lg focus-visible:ring-emerald-200" 
                 value={regRefDoctor}
                 onChange={(e) => setRegRefDoctor(e.target.value)}
               />
             </div>
-            {/* Added: Date and Time Field */}
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Registration Date & Time</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Registration date & time</label>
               <Input 
                 type="datetime-local"
-                className="border-slate-300 text-slate-800" 
+                className="border-slate-300 rounded-lg text-slate-800 focus-visible:ring-emerald-200" 
                 value={regDateTime}
                 onChange={(e) => setRegDateTime(e.target.value)}
                 required
@@ -1219,24 +1498,94 @@ export default function Home() {
             </div>
           </div>
 
-          <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2 pt-2">2. Clinical Parameters</h3>
+          <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3 pt-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#004d26] text-amber-300 text-[11px] font-bold">2</span>
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Clinical parameters</h3>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="relative">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Select report templates</label>
+              <button
+                type="button"
+                onClick={() => setIsRegTemplateDropdownOpen(!isRegTemplateDropdownOpen)}
+                className="flex h-11 w-full items-center justify-between rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-black shadow-xs focus:outline-hidden focus:ring-2 focus:ring-emerald-100"
+              >
+                <span className="truncate">
+                  {selectedRegTemplates.length > 0
+                    ? `${selectedRegTemplates.length} selected`
+                    : "Choose report template(s)…"}
+                </span>
+                <ChevronDown className="h-4 w-4 text-slate-500" />
+              </button>
+
+              {isRegTemplateDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsRegTemplateDropdownOpen(false)} />
+                  <div className="absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg animate-in fade-in duration-100">
+                    <div className="p-1 border-b mb-2">
+                      <Input
+                        placeholder="Search templates…"
+                        value={regTemplateSearch}
+                        onChange={(e) => setRegTemplateSearch(e.target.value)}
+                        className="h-8 text-xs bg-slate-50 text-black border-slate-300 rounded-md"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      {reportTemplates
+                        .filter((tpl) => tpl.label.toLowerCase().includes(regTemplateSearch.toLowerCase()))
+                        .map((tpl) => {
+                          const isChecked = selectedRegTemplates.some((item) => item.key === tpl.key);
+                          return (
+                            <label
+                              key={tpl.key}
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-100 cursor-pointer select-none"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleRegTemplateToggle(tpl)}
+                                className="h-4 w-4 rounded-sm border-slate-300 text-[#004d26] focus:ring-emerald-500"
+                              />
+                              <span className="font-medium text-black">{tpl.label}</span>
+                            </label>
+                          );
+                        })}
+                      {reportTemplates.filter((tpl) => tpl.label.toLowerCase().includes(regTemplateSearch.toLowerCase())).length === 0 && (
+                        <p className="text-center text-xs text-slate-400 py-2">No templates found</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Examination Required</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-semibold text-slate-700">Examination required (editable)</label>
+                {selectedRegTemplates.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearSelectedRegTemplates}
+                    className="text-xs text-red-600 hover:underline font-medium"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
               <Input 
                 placeholder="e.g. CBC, ESR, Blood Sugar" 
-                className="border-slate-300" 
+                className="border-slate-300 rounded-lg focus-visible:ring-emerald-200" 
                 value={regTests}
                 onChange={(e) => setRegTests(e.target.value)}
                 required 
               />
             </div>
-            {/* Added: Specimen Name / Type Field */}
+
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Specimen Name / Type</label>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Specimen name / type</label>
               <Input 
                 placeholder="e.g. Serum, Whole Blood, Urine" 
-                className="border-slate-300" 
+                className="border-slate-300 rounded-lg focus-visible:ring-emerald-200" 
                 value={regSpecimen}
                 onChange={(e) => setRegSpecimen(e.target.value)}
                 required
@@ -1244,100 +1593,271 @@ export default function Home() {
             </div>
           </div>
 
-          <h3 className="text-sm font-bold text-[#004d26] uppercase tracking-wider border-b pb-2 pt-2">3. Integrated Billing & Finance Allocation</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          {/* Updated Section 3 with Discount Functionality */}
+          <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3 pt-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[#004d26] text-amber-300 text-[11px] font-bold">3</span>
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Billing & finance allocation</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Total Test Bill (PKR)</label>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Total bill (PKR)</label>
               <Input 
                 type="number" 
                 placeholder="Total Bill Amount" 
-                className="border-slate-300 bg-white font-semibold text-slate-800" 
+                className="border-slate-300 rounded-lg bg-white font-semibold text-slate-800 focus-visible:ring-emerald-200" 
                 value={regTotalBill}
                 onChange={(e) => setRegTotalBill(e.target.value)}
                 required 
               />
             </div>
+            
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Advance Received (PKR)</label>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Discount type</label>
+              <Select value={regDiscountType} onValueChange={(val) => setRegDiscountType(val)}>
+                <SelectTrigger className="border-slate-300 rounded-lg bg-white text-black">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent className="border-slate-300 text-black mt-2">
+                  <SelectItem value="flat">Manual / Flat Amount</SelectItem>
+                  <SelectItem value="percentage">Percentage (%)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                Discount value {regDiscountType === "percentage" ? "(%)" : "(PKR)"}
+              </label>
               <Input 
                 type="number" 
-                placeholder="Amount Deposited Now" 
-                className="border-slate-300 bg-white font-semibold text-emerald-800" 
+                placeholder={regDiscountType === "percentage" ? "e.g. 10%" : "e.g. 500"} 
+                className="border-slate-300 rounded-lg bg-white font-semibold text-slate-800 focus-visible:ring-emerald-200" 
+                value={regDiscountValue}
+                onChange={(e) => setRegDiscountValue(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Advance received (PKR)</label>
+              <Input 
+                type="number" 
+                placeholder="Amount Deposited" 
+                className="border-slate-300 rounded-lg bg-white font-semibold text-emerald-800 focus-visible:ring-emerald-200" 
                 value={regAdvancePaid}
                 onChange={(e) => setRegAdvancePaid(e.target.value)}
               />
             </div>
+
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Pending Balance (PKR)</label>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Pending balance (PKR)</label>
               <Input 
                 type="text" 
-                className="border-slate-300 bg-slate-100 font-bold text-red-700 cursor-not-allowed" 
+                className="border-slate-300 rounded-lg bg-slate-100 font-bold text-red-700 cursor-not-allowed" 
                 value={`PKR ${regPendingBalance.toLocaleString()}`}
                 readOnly
               />
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4">
-            <Button type="submit" className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">Register Patient</Button>
-            <Button type="button" variant="outline" onClick={() => setActiveTab("Overview")} className="border-slate-300">Cancel</Button>
+          <div className="flex gap-3 pt-2">
+            <Button type="submit" className="bg-[#004d26] text-amber-300 hover:bg-[#00341a] rounded-lg font-semibold shadow-sm">Register patient</Button>
+            <Button type="button" variant="outline" onClick={() => setActiveTab("Overview")} className="border-slate-300 rounded-lg">Cancel</Button>
           </div>
         </form>
       </div>
     </div>
   );
+
+      case "Patient Records":
+        return (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700/70">Directory</p>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900 mt-1">Patient records</h2>
+                <p className="text-slate-500 text-sm mt-1.5">Full clinical and billing detail for every registered patient — examination, reference doctor, specimen, and fees.</p>
+              </div>
+              <Button onClick={() => setActiveTab("New Registration")} className="bg-[#004d26] text-amber-300 hover:bg-[#00341a] rounded-lg shadow-sm font-semibold">
+                <Plus className="w-4 h-4 mr-2" />
+                New Patient
+              </Button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={recordsSearch}
+                  onChange={(e) => setRecordsSearch(e.target.value)}
+                  placeholder="Search by patient, lab ID, doctor, specimen, or test…"
+                  className="h-10 rounded-lg border-slate-300 pl-9 pr-9 text-slate-800 focus-visible:ring-emerald-200"
+                />
+                {recordsSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setRecordsSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    aria-label="Clear records search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              <Select value={recordsStatusFilter} onValueChange={(val) => setRecordsStatusFilter(val)}>
+                <SelectTrigger className="w-full lg:w-48 border-slate-300 rounded-lg text-black shrink-0">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent className="border-slate-300 text-black">
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="Pending">Pending</SelectItem>
+                  <SelectItem value="Processing">Processing</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="Overdue">Overdue</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 shrink-0 lg:pl-2">
+                <Users className="h-3.5 w-3.5 text-slate-400" />
+                {recordsFilteredPatients.length} of {testQueueData.length} patients
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm min-w-[1200px]">
+                  <thead className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-bold tracking-widest border-b border-slate-100">
+                    <tr>
+                      <th className="px-5 py-3.5">Lab ID</th>
+                      <th className="px-5 py-3.5">Patient</th>
+                      <th className="px-5 py-3.5">Contact</th>
+                      <th className="px-5 py-3.5">Reference doctor</th>
+                      <th className="px-5 py-3.5">Specimen</th>
+                      <th className="px-5 py-3.5">Examination / tests</th>
+                      <th className="px-5 py-3.5 text-right">Test fee</th>
+                      <th className="px-5 py-3.5 text-right">Advance paid</th>
+                      <th className="px-5 py-3.5 text-right">Pending</th>
+                      <th className="px-5 py-3.5">Registered</th>
+                      <th className="px-5 py-3.5">Status</th>
+                      <th className="px-5 py-3.5 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {recordsFilteredPatients.map((row, i) => (
+                      <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50/70 transition-colors align-top">
+                        <td className="px-5 py-4 font-semibold text-slate-700 font-mono text-xs whitespace-nowrap">{row.id}</td>
+                        <td className="px-5 py-4">
+                          <p className="text-slate-800 font-semibold">{row.patient}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{row.age || "N/A"} · {row.gender || "N/A"}</p>
+                        </td>
+                        <td className="px-5 py-4 text-slate-600 whitespace-nowrap">{row.contact || "N/A"}</td>
+                        <td className="px-5 py-4 text-slate-600">{row.refDoctor || "Self"}</td>
+                        <td className="px-5 py-4 text-slate-600 whitespace-nowrap">{row.specimen || "N/A"}</td>
+                        <td className="px-5 py-4 text-slate-600 max-w-xs">{row.tests}</td>
+                        <td className="px-5 py-4 text-right font-bold text-slate-800 tabular-nums whitespace-nowrap">
+                          PKR {(row.totalBill || 0).toLocaleString()}
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-emerald-700 tabular-nums whitespace-nowrap">
+                          PKR {(row.advancePaid || 0).toLocaleString()}
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-red-600 tabular-nums whitespace-nowrap">
+                          PKR {(row.pendingBalance || 0).toLocaleString()}
+                        </td>
+                        <td className="px-5 py-4 text-slate-500 whitespace-nowrap">{row.registeredAt || "N/A"}</td>
+                        <td className="px-5 py-4">{getStatusBadge(row.status)}</td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-1 justify-end">
+                            <Button
+                              variant="ghost"
+                              onClick={() => handleOpenReportEditor(row)}
+                              className="text-[#004d26] text-xs font-semibold hover:text-[#00341a] hover:bg-emerald-50 rounded-lg h-8 px-2.5 whitespace-nowrap"
+                            >
+                              {row.action || "View"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() => handleDeletePatient(row.id)}
+                              disabled={deletingPatientId === row.id}
+                              className="text-red-600 text-xs font-semibold hover:text-red-700 hover:bg-red-50 rounded-lg h-8 px-2.5"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!recordsFilteredPatients.length && (
+                      <tr>
+                        <td colSpan={12} className="px-6 py-12 text-center text-sm text-slate-400">
+                          {testQueueData.length
+                            ? "No patient records match your search or filter."
+                            : "No patients registered yet — new registrations will appear here with full detail."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+
       case "Test Queue":
         return (
           <div className="space-y-6 animate-in fade-in duration-200">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
-                <h2 className="text-3xl font-bold text-slate-800">Test Queue Management</h2>
-                <p className="text-slate-500 text-sm mt-1">Manage and process pending laboratory tests.</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700/70">Workflow</p>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900 mt-1">Test queue management</h2>
+                <p className="text-slate-500 text-sm mt-1.5">Manage and process pending laboratory tests.</p>
               </div>
             </div>
-            <div className="bg-white rounded-xl shadow-md border border-slate-100 overflow-hidden">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-widest border-b border-slate-100">
+                  <thead className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-bold tracking-widest border-b border-slate-100">
                     <tr>
-                      <th className="px-6 py-4">Lab ID</th>
-                      <th className="px-6 py-4">Patient Name</th>
-                      <th className="px-6 py-4">Tests Required</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4">Priority</th>
-                      <th className="px-6 py-4">Action</th>
+                      <th className="px-6 py-3.5">Lab ID</th>
+                      <th className="px-6 py-3.5">Patient name</th>
+                      <th className="px-6 py-3.5">Tests required</th>
+                      <th className="px-6 py-3.5">Status</th>
+                      <th className="px-6 py-3.5">Priority</th>
+                      <th className="px-6 py-3.5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {testQueueData.map((row, i) => (
-                      <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-semibold text-slate-700">{row.id}</td>
-                        <td className="px-6 py-4 text-slate-600">{row.patient}</td>
-                        <td className="px-6 py-4 text-slate-600 text-xs">{row.tests}</td>
+                      <tr key={row.id ? `${row.id}-${i}` : i} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-slate-700 font-mono text-xs">{row.id}</td>
+                        <td className="px-6 py-4 text-slate-700 font-medium">{row.patient}</td>
+                        <td className="px-6 py-4 text-slate-500 text-xs">{row.tests}</td>
                   <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
-                        <td className="px-6 py-4"><Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Normal</Badge></td>
-                        <td className="px-6 py-4 flex items-center gap-2 justify-end">
-                          <Button 
-                            asChild
-                            variant="ghost" 
-                            className="text-blue-600 text-xs font-semibold hover:text-blue-800"
-                          >
-                            <Link href={getPatientReportHref(row)}>
+                        <td className="px-6 py-4"><Badge className="bg-orange-50 text-orange-700 hover:bg-orange-50 rounded-full ring-1 ring-inset ring-orange-200 font-medium">Normal</Badge></td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-1 justify-end">
+                            <Button 
+                              variant="ghost" 
+                              onClick={() => handleOpenReportEditor(row)}
+                              className="text-[#004d26] text-xs font-semibold hover:text-[#00341a] hover:bg-emerald-50 rounded-lg h-8 px-2.5"
+                            >
                               {row.action}
-                            </Link>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            onClick={() => handleDeletePatient(row.id)}
-                            disabled={deletingPatientId === row.id}
-                            className="text-red-600 text-xs font-semibold hover:text-red-800"
-                          >
-                            <Trash2 className="w-4 h-4 mr-1" />
-                            {deletingPatientId === row.id ? "Deleting" : "Delete"}
-                          </Button>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() => handleDeletePatient(row.id)}
+                              disabled={deletingPatientId === row.id}
+                              className="text-red-600 text-xs font-semibold hover:text-red-700 hover:bg-red-50 rounded-lg h-8 px-2.5"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-1" />
+                              {deletingPatientId === row.id ? "Deleting" : "Delete"}
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
+                    {!testQueueData.length && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">The queue is empty — new registrations will appear here.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1354,40 +1874,44 @@ export default function Home() {
           <div className="space-y-8 animate-in fade-in duration-200">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
-                <h2 className="text-3xl font-bold text-slate-800">Finance & Revenue Matrices</h2>
-                <p className="text-slate-500 text-sm mt-1">Track daily revenue, advance collections, and outstanding patient obligations.</p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700/70">Accounts</p>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900 mt-1">Finance & revenue</h2>
+                <p className="text-slate-500 text-sm mt-1.5">Track daily revenue, advance collections, and outstanding patient obligations.</p>
               </div>
             </div>
 
             {/* Finance Overview Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-xl border-l-4 border-l-[#004d26] shadow-sm">
-                <p className="text-slate-500 text-xs font-semibold uppercase">Cumulative Received Revenue</p>
-                <h3 className="text-3xl font-bold text-[#004d26] mt-2">PKR {(totalAdvancePayments).toLocaleString()}</h3>
-                <p className="text-green-600 text-xs mt-3 font-semibold">Live System Audited</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+                <span className="absolute left-0 top-0 h-full w-1 bg-[#004d26]" />
+                <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Cumulative received revenue</p>
+                <h3 className="text-3xl font-bold text-[#004d26] mt-2 tabular-nums">PKR {(totalAdvancePayments).toLocaleString()}</h3>
+                <p className="text-emerald-600 text-xs mt-3 font-semibold">Live, system audited</p>
               </div>
-              <div className="bg-white p-6 rounded-xl border-l-4 border-l-yellow-500 shadow-sm">
-                <p className="text-slate-500 text-xs font-semibold uppercase">Advance Secure Holdings</p>
-                <h3 className="text-3xl font-bold text-slate-800 mt-2">PKR {totalAdvancePayments.toLocaleString()}</h3>
-                <p className="text-slate-500 text-xs mt-3 font-semibold">{advancePayments.length} Active secure records</p>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+                <span className="absolute left-0 top-0 h-full w-1 bg-amber-400" />
+                <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Advance secure holdings</p>
+                <h3 className="text-3xl font-bold text-slate-900 mt-2 tabular-nums">PKR {totalAdvancePayments.toLocaleString()}</h3>
+                <p className="text-slate-500 text-xs mt-3 font-semibold">{advancePayments.length} active secure records</p>
               </div>
-              <div className="bg-white p-6 rounded-xl border-l-4 border-l-red-500 shadow-sm">
-                <p className="text-slate-500 text-xs font-semibold uppercase">Pending Accounts Receivables</p>
-                <h3 className="text-3xl font-bold text-red-600 mt-2">PKR {totalPendingPayments.toLocaleString()}</h3>
-                <p className="text-orange-600 text-xs mt-3 font-semibold">{pendingPayments.length} Pending Collections</p>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
+                <span className="absolute left-0 top-0 h-full w-1 bg-red-500" />
+                <p className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">Pending accounts receivable</p>
+                <h3 className="text-3xl font-bold text-red-600 mt-2 tabular-nums">PKR {totalPendingPayments.toLocaleString()}</h3>
+                <p className="text-orange-600 text-xs mt-3 font-semibold">{pendingPayments.length} pending collections</p>
               </div>
             </div>
 
             {/* Advance Payments Section */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h3 className="font-bold text-slate-700 text-lg">Advance Patient Deposits (Including Registrations)</h3>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h3 className="font-bold text-slate-900 text-lg">Advance patient deposits (including registrations)</h3>
                 <Button 
                   onClick={() => setShowAdvancePaymentForm(!showAdvancePaymentForm)}
-                  className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a] text-xs"
+                  className="bg-[#004d26] text-amber-300 hover:bg-[#00341a] text-xs rounded-lg font-semibold shadow-sm"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Record Advance Deposit
+                  Record advance deposit
                 </Button>
               </div>
               
@@ -1395,79 +1919,84 @@ export default function Home() {
                 <div className="p-6 border-b border-slate-100 bg-emerald-50/50 space-y-4 animate-in slide-in-from-top-2 duration-200">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Patient Name</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Patient name</label>
                       <Input 
                         placeholder="Patient Full Name" 
                         value={newAdvancePayment.patientName}
                         onChange={(e) => setNewAdvancePayment({...newAdvancePayment, patientName: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Lab Case Reference ID</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Lab case reference ID</label>
                       <Input 
                         placeholder="e.g. #01/05" 
                         value={newAdvancePayment.patientId}
                         onChange={(e) => setNewAdvancePayment({...newAdvancePayment, patientId: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Deposit Value (PKR)</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Deposit value (PKR)</label>
                       <Input 
                         type="number" 
                         placeholder="Deposit Amount" 
                         value={newAdvancePayment.amount}
                         onChange={(e) => setNewAdvancePayment({...newAdvancePayment, amount: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button onClick={() => setShowAdvancePaymentForm(false)} variant="outline" className="border-slate-300 text-xs">Cancel</Button>
-                    <Button onClick={handleAddAdvancePayment} className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs">Save Deposit Record</Button>
+                    <Button onClick={() => setShowAdvancePaymentForm(false)} variant="outline" className="border-slate-300 text-xs rounded-lg">Cancel</Button>
+                    <Button onClick={handleAddAdvancePayment} className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs rounded-lg font-semibold">Save deposit record</Button>
                   </div>
                 </div>
               )}
               
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-widest border-b border-slate-100">
+                  <thead className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-bold tracking-widest border-b border-slate-100">
                     <tr>
-                      <th className="px-6 py-4">Receipt ID</th>
-                      <th className="px-6 py-4">Patient Name</th>
-                      <th className="px-6 py-4">Lab Case ID</th>
-                      <th className="px-6 py-4">Amount</th>
-                      <th className="px-6 py-4">Date Logged</th>
-                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-3.5">Receipt ID</th>
+                      <th className="px-6 py-3.5">Patient name</th>
+                      <th className="px-6 py-3.5">Lab case ID</th>
+                      <th className="px-6 py-3.5">Amount</th>
+                      <th className="px-6 py-3.5">Date logged</th>
+                      <th className="px-6 py-3.5">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {advancePayments.map((payment, index) => (
-                      <tr key={`${payment.id}-${payment.patientId}-${payment.date}-${index}`} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-semibold text-slate-700">{payment.id}</td>
-                        <td className="px-6 py-4 text-slate-600 font-medium">{payment.patientName}</td>
-                        <td className="px-6 py-4 text-slate-500">{payment.patientId}</td>
-                        <td className="px-6 py-4 font-bold text-emerald-800">PKR {payment.amount.toLocaleString()}</td>
+                      <tr key={`${payment.id}-${payment.patientId}-${payment.date}-${index}`} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-slate-700 font-mono text-xs">{payment.id}</td>
+                        <td className="px-6 py-4 text-slate-700 font-medium">{payment.patientName}</td>
+                        <td className="px-6 py-4 text-slate-500 font-mono text-xs">{payment.patientId}</td>
+                        <td className="px-6 py-4 font-bold text-emerald-700 tabular-nums">PKR {payment.amount.toLocaleString()}</td>
                         <td className="px-6 py-4 text-slate-500">{payment.date}</td>
                         <td className="px-6 py-4">{getStatusBadge(payment.status)}</td>
                       </tr>
                     ))}
+                    {!advancePayments.length && (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-400">No advance deposits recorded yet.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
 
             {/* Pending Payments Section */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <h3 className="font-bold text-slate-700 text-lg">Outstanding Receivables Ledger (Remaining Balances)</h3>
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <h3 className="font-bold text-slate-900 text-lg">Outstanding receivables ledger (remaining balances)</h3>
                 <Button 
                   onClick={() => setShowPendingPaymentForm(!showPendingPaymentForm)}
-                  className="bg-red-700 hover:bg-red-800 text-white text-xs"
+                  className="bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-semibold shadow-sm"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Log Pending Invoice
+                  Log pending invoice
                 </Button>
               </div>
               
@@ -1475,83 +2004,88 @@ export default function Home() {
                 <div className="p-6 border-b border-slate-100 bg-orange-50/50 space-y-4 animate-in slide-in-from-top-2 duration-200">
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Debtor Patient Name</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Debtor patient name</label>
                       <Input 
                         placeholder="Patient Full Name" 
                         value={newPendingPayment.patientName}
                         onChange={(e) => setNewPendingPayment({...newPendingPayment, patientName: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Case Target ID</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Case target ID</label>
                       <Input 
                         placeholder="e.g. #01/06" 
                         value={newPendingPayment.patientId}
                         onChange={(e) => setNewPendingPayment({...newPendingPayment, patientId: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Outstanding Balance (PKR)</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Outstanding balance (PKR)</label>
                       <Input 
                         type="number" 
                         placeholder="Balance Owed" 
                         value={newPendingPayment.amount}
                         onChange={(e) => setNewPendingPayment({...newPendingPayment, amount: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Settlement Deadline</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Settlement deadline</label>
                       <Input 
                         type="date" 
                         value={newPendingPayment.dueDate}
                         onChange={(e) => setNewPendingPayment({...newPendingPayment, dueDate: e.target.value})}
-                        className="bg-white border-slate-300"
+                        className="bg-white border-slate-300 rounded-lg"
                       />
                     </div>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button onClick={() => setShowPendingPaymentForm(false)} variant="outline" className="border-slate-300 text-xs">Cancel</Button>
-                    <Button onClick={handleAddPendingPayment} className="bg-red-700 hover:bg-red-800 text-white text-xs">Commit Invoice</Button>
+                    <Button onClick={() => setShowPendingPaymentForm(false)} variant="outline" className="border-slate-300 text-xs rounded-lg">Cancel</Button>
+                    <Button onClick={handleAddPendingPayment} className="bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-semibold">Commit invoice</Button>
                   </div>
                 </div>
               )}
               
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-widest border-b border-slate-100">
+                  <thead className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-bold tracking-widest border-b border-slate-100">
                     <tr>
-                      <th className="px-6 py-4">Invoice ID</th>
-                      <th className="px-6 py-4">Patient Name</th>
-                      <th className="px-6 py-4">Lab Case ID</th>
-                      <th className="px-6 py-4">Balance Owed</th>
-                      <th className="px-6 py-4">Due Date</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Action</th>
+                      <th className="px-6 py-3.5">Invoice ID</th>
+                      <th className="px-6 py-3.5">Patient name</th>
+                      <th className="px-6 py-3.5">Lab case ID</th>
+                      <th className="px-6 py-3.5">Balance owed</th>
+                      <th className="px-6 py-3.5">Due date</th>
+                      <th className="px-6 py-3.5">Status</th>
+                      <th className="px-6 py-3.5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {pendingPayments.map((payment, index) => (
-                      <tr key={`${payment.id}-${payment.patientId}-${payment.dueDate}-${index}`} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-semibold text-slate-700">{payment.id}</td>
-                        <td className="px-6 py-4 text-slate-600 font-medium">{payment.patientName}</td>
-                        <td className="px-6 py-4 text-slate-500">{payment.patientId}</td>
-                        <td className="px-6 py-4 font-bold text-red-700">PKR {payment.amount.toLocaleString()}</td>
+                      <tr key={`${payment.id}-${payment.patientId}-${payment.dueDate}-${index}`} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-slate-700 font-mono text-xs">{payment.id}</td>
+                        <td className="px-6 py-4 text-slate-700 font-medium">{payment.patientName}</td>
+                        <td className="px-6 py-4 text-slate-500 font-mono text-xs">{payment.patientId}</td>
+                        <td className="px-6 py-4 font-bold text-red-600 tabular-nums">PKR {payment.amount.toLocaleString()}</td>
                         <td className="px-6 py-4 text-slate-500">{payment.dueDate}</td>
                         <td className="px-6 py-4">{getStatusBadge(payment.status)}</td>
                         <td className="px-6 py-4 text-right">
                           <Button 
                             onClick={() => handleMarkAsPaid(payment.id, payment.amount, payment.patientName)}
                             size="sm" 
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-1 h-7"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs py-1 h-7 rounded-lg font-semibold"
                           >
-                            Mark Collected
+                            Mark collected
                           </Button>
                         </td>
                       </tr>
                     ))}
+                    {!pendingPayments.length && (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-10 text-center text-sm text-slate-400">No outstanding balances — all clear.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1562,51 +2096,63 @@ export default function Home() {
       case "Reports":
         return (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <div>
-              <h2 className="text-3xl font-bold text-slate-800">Patient Diagnostic Archives</h2>
-              <p className="text-slate-500 text-sm mt-1">Review, authorize, and compile structured laboratory clinical sheets.</p>
-               <div className="flex gap-3 w-full md:w-auto justify-end mt-4">
-                <Button asChild className="flex-1 md:flex-none bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
-                  <Link href="/template">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Report Generate
-                  </Link>
-                </Button>
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700/70">Archives</p>
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900 mt-1">Patient diagnostic archives</h2>
+                <p className="text-slate-500 text-sm mt-1.5">Review, authorize, and compile structured laboratory clinical sheets.</p>
               </div>
+              <Button 
+                onClick={() => setActiveReportPatientData({
+                  source: "admin",
+                  tests: "Laboratory Report"
+                })}
+                className="bg-[#004d26] text-amber-300 hover:bg-[#00341a] rounded-lg font-semibold shadow-sm"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Generate report
+              </Button>
             </div>
 
             {/* Main Interactive Reports Table Grid */}
-            <div className="bg-white rounded-xl shadow-md border border-slate-100 overflow-hidden">
-              <div className="p-5 border-b bg-slate-50/60 font-semibold text-slate-700 text-sm">
-                Active Patient Medical Records
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 font-bold text-slate-800 text-sm flex items-center gap-2.5">
+                <FileText className="h-4 w-4 text-[#004d26]" />
+                Active patient medical records
               </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold tracking-wider border-b border-slate-100">
+            <thead className="bg-slate-50/80 text-slate-500 text-[11px] uppercase font-bold tracking-widest border-b border-slate-100">
               <tr>
-                <th className="px-6 py-4">Report #</th>
-                <th className="px-6 py-4">Patient Name</th>
-                <th className="px-6 py-4">Generated</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4 text-right">Action</th>
+                <th className="px-6 py-3.5">Report #</th>
+                <th className="px-6 py-3.5">Patient name</th>
+                <th className="px-6 py-3.5">Generated</th>
+                <th className="px-6 py-3.5">Status</th>
+                <th className="px-6 py-3.5 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
                       {reportsList.map((rep, index) => (
-                <tr key={rep.reportNumber || rep.id || `report-${index}`} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="px-6 py-4 font-bold text-slate-700">{rep.reportNumber}</td>
-                  <td className="px-6 py-4 text-slate-600 font-medium">{rep.patientName}</td>
+                <tr key={rep.reportNumber || rep.id || `report-${index}`} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="px-6 py-4 font-bold text-slate-700 font-mono text-xs">{rep.reportNumber}</td>
+                  <td className="px-6 py-4 text-slate-700 font-medium">{rep.patientName}</td>
                   <td className="px-6 py-4 text-slate-500 text-xs">{new Date(rep.createdAt || rep.generatedAt || rep.created_at || Date.now()).toLocaleString()}</td>
-                  <td className="px-6 py-4">{rep.status || "Completed"}</td>
+                  <td className="px-6 py-4">{getStatusBadge(rep.status || "Completed")}</td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end items-center gap-4">
-                      <Link
-                        href={`/template?source=report&reportNumber=${encodeURIComponent(rep.reportNumber)}`}
-                        className="inline-flex items-center text-[#004d26] hover:text-[#00361a] text-xs font-semibold"
+                    <div className="flex justify-end items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        onClick={() => setActiveReportPatientData({
+                          source: "report",
+                          reportNumber: rep.reportNumber,
+                          patientId: rep.patientId,
+                          patientName: rep.patientName
+                        })}
+                        className="inline-flex items-center text-[#004d26] hover:text-[#00341a] hover:bg-emerald-50 text-xs font-semibold h-8 px-2.5 rounded-lg"
                       >
                         <FileText className="w-4 h-4 mr-1" />
                         View
-                      </Link>
+                      </Button>
 
                       {/* New Delete Button */}
                       <Button
@@ -1614,7 +2160,7 @@ export default function Home() {
                         size="sm"
                         onClick={() => handleDeleteReport(rep.reportNumber || rep.id)}
                         disabled={deletingReportNumber === (rep.reportNumber || rep.id)}
-                        className="text-red-600 hover:text-red-800 hover:bg-red-50 text-xs font-semibold h-8 px-2"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 text-xs font-semibold h-8 px-2.5 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4 mr-1" />
                         Delete
@@ -1625,7 +2171,7 @@ export default function Home() {
               ))}
               {!reportsList.length && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-slate-500">No saved reports yet.</td>
+                  <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-400">No saved reports yet.</td>
                 </tr>
               )}
             </tbody>
@@ -1635,18 +2181,18 @@ export default function Home() {
 
             {/* Dynamic Modal Interface Sheet for generating medical document records */}
             {selectedReportPatient && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
                   <div className="bg-[#004d26] text-white px-6 py-4 flex justify-between items-center">
                     <div>
-                      <h3 className="font-bold text-yellow-400 text-base">Al-Jannat Automated Report Engine</h3>
-                      <p className="text-xs text-emerald-100/80 mt-0.5">Compiling values for Case reference: {selectedReportPatient.id}</p>
+                      <h3 className="font-bold text-amber-300 text-base">Automated Report Engine</h3>
+                      <p className="text-xs text-emerald-100/80 mt-0.5 font-mono">Case reference: {selectedReportPatient.id}</p>
                     </div>
                     <Button 
                       size="icon" 
                       variant="ghost" 
                       onClick={() => setSelectedReportPatient(null)} 
-                      className="text-white hover:bg-emerald-800 h-8 w-8"
+                      className="text-white hover:bg-emerald-800 h-8 w-8 rounded-lg"
                     >
                       <X className="w-4 h-4" />
                     </Button>
@@ -1654,16 +2200,16 @@ export default function Home() {
                   <form className="p-6 space-y-5" onSubmit={handleCompileAndPrintReport}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                       <div>
-                        <p className="text-xs font-bold uppercase text-slate-500">Patient</p>
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Patient</p>
                         <p className="font-semibold text-slate-800 mt-1">{selectedReportPatient.patient}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-bold uppercase text-slate-500">Assigned Assays</p>
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Assigned assays</p>
                         <p className="font-semibold text-slate-800 mt-1">{selectedReportPatient.tests}</p>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">Clinical Findings</label>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Clinical findings</label>
                       <textarea
                         value={reportFindings}
                         onChange={(e) => setReportFindings(e.target.value)}
@@ -1673,12 +2219,12 @@ export default function Home() {
                       />
                     </div>
                     <div className="flex justify-end gap-3">
-                      <Button type="button" variant="outline" onClick={() => setSelectedReportPatient(null)} className="border-slate-300">
+                      <Button type="button" variant="outline" onClick={() => setSelectedReportPatient(null)} className="border-slate-300 rounded-lg">
                         Cancel
                       </Button>
-                      <Button type="submit" disabled={isReportSaving} className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
+                      <Button type="submit" disabled={isReportSaving} className="bg-[#004d26] text-amber-300 hover:bg-[#00341a] rounded-lg font-semibold">
                         <Printer className="w-4 h-4 mr-2" />
-                        {isReportSaving ? "Saving..." : "Finalize Report"}
+                        {isReportSaving ? "Saving…" : "Finalize report"}
                       </Button>
                     </div>
                   </form>
@@ -1707,56 +2253,63 @@ export default function Home() {
       )}
 
       {/* SIDEBAR - DESKTOP */}
-      <aside className="hidden lg:flex flex-col w-64 text-white border-r border-emerald-900 z-30 transition-all duration-300" style={{ backgroundColor: branding.primaryColor }}>
-        <div className="p-1 border-b border-emerald-900 flex items-center">
-          <div className="w-22 h-22 flex  shadow-inner overflow-hidden">
+      <aside className="hidden lg:flex flex-col w-64 text-white z-30 transition-all duration-300" style={{ backgroundColor: branding.primaryColor }}>
+        <div className="px-5 py-5 flex items-center gap-3 border-b border-white/10">
+          <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center overflow-hidden shrink-0">
             <Image
               src={branding.logoUrl}
               alt={`${branding.labName} logo`}
-              width={100}
-              height={100}
+              width={44}
+              height={44}
               className="h-full w-full object-contain p-1"
               unoptimized
             />
           </div>
-          <div>
-            <h1 className="font-black text-sm tracking-wider uppercase" style={{ color: branding.accentColor }}>{branding.labName}</h1>
-            <p className="text-[10px] text-emerald-100 font-semibold tracking-widest uppercase">{branding.tagline}</p>
+          <div className="min-w-0">
+            <h1 className="font-black text-sm tracking-wide uppercase truncate" style={{ color: branding.accentColor }}>{branding.labName}</h1>
+            <p className="text-[10px] text-emerald-100/70 font-semibold tracking-widest uppercase truncate">{branding.tagline}</p>
           </div>
         </div>
-        <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-          {menuItems.map((item) => (
-            <button
-              key={item.name}
-              onClick={() => setActiveTab(item.name)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 ${
-                activeTab === item.name
-                  ? "bg-yellow-400 text-[#004d26] shadow-md font-bold scale-[1.02]"
-                  : "text-emerald-100 hover:bg-emerald-800/60 hover:text-white"
-              }`}
-              style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
-            >
-              <span className="text-base">{item.icon}</span>
-              {item.name}
-            </button>
-          ))}
+        <nav className="flex-1 px-3.5 py-5 space-y-1 overflow-y-auto">
+          {menuItems.map((item) => {
+            const NavIcon = NAV_ICONS[item.name] || ListChecks;
+            const isActive = activeTab === item.name;
+            return (
+              <button
+                key={item.name}
+                onClick={() => {
+                  setActiveTab(item.name);
+                  setActiveReportPatientData(null);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all duration-150 ${
+                  isActive
+                    ? "shadow-sm font-bold"
+                    : "text-emerald-100/80 hover:bg-white/10 hover:text-white"
+                }`}
+                style={isActive ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
+              >
+                <NavIcon className="h-4 w-4 shrink-0" />
+                {item.name}
+              </button>
+            );
+          })}
         </nav>
-        <div className="px-4 pb-3">
+        <div className="px-3.5 pb-2">
           <button
             type="button"
             onClick={() => setIsCustomizerOpen(true)}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800/60 hover:text-white transition-all"
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-emerald-100/80 hover:bg-white/10 hover:text-white transition-all"
           >
-            <Settings className="h-4 w-4" />
-            Edit Dashboard
+            <Settings className="h-4 w-4 shrink-0" />
+            Edit dashboard
           </button>
         </div>
-        <div className="p-4 border-t border-emerald-900 bg-[#003d1e]">
-          <div className="flex items-center gap-3 p-2 rounded-lg bg-emerald-950/40">
-            <div className="w-8 h-8 rounded-full bg-yellow-400 text-[#004d26] flex items-center justify-center font-bold text-xs">AD</div>
+        <div className="p-3.5 pt-3 border-t border-white/10">
+          <div className="flex items-center gap-3 p-2.5 rounded-xl bg-black/15">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0" style={{ backgroundColor: branding.accentColor, color: branding.primaryColor }}>AD</div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold truncate text-white">System Admin</p>
-              <p className="text-[10px] text-emerald-200 truncate">Arifwala Desk</p>
+              <p className="text-[10px] text-emerald-100/60 truncate">{branding.labName || "Lab Desk"}</p>
             </div>
           </div>
         </div>
@@ -1766,9 +2319,9 @@ export default function Home() {
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 lg:hidden animate-in fade-in duration-200">
           <aside className="w-64 text-white h-full flex flex-col shadow-2xl animate-in slide-in-from-left duration-200" style={{ backgroundColor: branding.primaryColor }}>
-            <div className="p-6 border-b border-emerald-900 flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-white rounded-md flex items-center justify-center overflow-hidden">
+            <div className="px-5 py-5 border-b border-white/10 flex justify-between items-center">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center overflow-hidden shrink-0">
                   <Image
                     src={branding.logoUrl}
                     alt={`${branding.labName} logo`}
@@ -1778,38 +2331,46 @@ export default function Home() {
                     unoptimized
                   />
                 </div>
-                <span className="font-bold" style={{ color: branding.accentColor }}>{branding.labName}</span>
+                <span className="font-bold truncate" style={{ color: branding.accentColor }}>{branding.labName}</span>
               </div>
-              <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(false)} className="text-white hover:bg-emerald-800">
+              <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(false)} className="text-white hover:bg-white/10 rounded-lg shrink-0">
                 <X className="w-5 h-5" />
               </Button>
             </div>
-            <nav className="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
-              {menuItems.map((item) => (
-                <button
-                  key={item.name}
-                  onClick={() => { setActiveTab(item.name); setIsMobileSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm ${
-                    activeTab === item.name ? "bg-yellow-400 text-[#004d26] font-bold" : "text-emerald-100 hover:bg-emerald-800"
-                  }`}
-                  style={activeTab === item.name ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
-                >
-                  <span>{item.icon}</span>
-                  {item.name}
-                </button>
-              ))}
+            <nav className="flex-1 px-3.5 py-5 space-y-1 overflow-y-auto">
+              {menuItems.map((item) => {
+                const NavIcon = NAV_ICONS[item.name] || ListChecks;
+                const isActive = activeTab === item.name;
+                return (
+                  <button
+                    key={item.name}
+                    onClick={() => {
+                      setActiveTab(item.name);
+                      setIsMobileSidebarOpen(false);
+                      setActiveReportPatientData(null);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm ${
+                      isActive ? "font-bold" : "text-emerald-100/80 hover:bg-white/10"
+                    }`}
+                    style={isActive ? { backgroundColor: branding.accentColor, color: branding.primaryColor } : undefined}
+                  >
+                    <NavIcon className="h-4 w-4 shrink-0" />
+                    {item.name}
+                  </button>
+                );
+              })}
             </nav>
-            <div className="px-4 pb-4">
+            <div className="px-3.5 pb-4">
               <button
                 type="button"
                 onClick={() => {
                   setIsCustomizerOpen(true);
                   setIsMobileSidebarOpen(false);
                 }}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm text-emerald-100 hover:bg-emerald-800"
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-emerald-100/80 hover:bg-white/10"
               >
-                <Settings className="h-4 w-4" />
-                Edit Dashboard
+                <Settings className="h-4 w-4 shrink-0" />
+                Edit dashboard
               </button>
             </div>
           </aside>
@@ -1819,13 +2380,14 @@ export default function Home() {
       {/* MAIN SCREEN CANVAS CONTAINER */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top Navbar */}
-        <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 z-10">
+        <header className="h-16 border-b border-slate-200 bg-white/90 backdrop-blur-sm flex items-center justify-between px-6 z-10 shrink-0">
           <div className="flex items-center gap-4">
-            <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(true)} className="lg:hidden text-slate-600">
+            <Button size="icon" variant="ghost" onClick={() => setIsMobileSidebarOpen(true)} className="lg:hidden text-slate-600 rounded-lg">
               <Menu className="w-5 h-5" />
             </Button>
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-full text-xs text-slate-600 font-medium">
-             
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-full text-xs text-emerald-700 font-semibold">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              System online
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -1839,7 +2401,31 @@ export default function Home() {
         {/* Dynamic Inner Body Content Wrapper */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           <div className="max-w-6xl mx-auto">
-            {renderContent()}
+            {activeReportPatientData ? (
+              <LabReportTemplate
+                patientData={activeReportPatientData}
+                onClose={() => setActiveReportPatientData(null)}
+                onReportSaved={async () => {
+                  try {
+                    const url = currentLabId ? `/api/patients?labId=${encodeURIComponent(currentLabId)}` : "/api/patients";
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    if (res.ok) {
+                      if (data.patients) setTestQueueData(data.patients);
+                    }
+                    const reportsRes = await fetch(`/api/reports?labId=${encodeURIComponent(currentLabId)}`);
+                    const reportsData = await reportsRes.json();
+                    if (reportsRes.ok) {
+                      setReportsList(reportsData.reports || []);
+                    }
+                  } catch (e) {
+                    console.warn("Could not reload lists", e);
+                  }
+                }}
+              />
+            ) : (
+              renderContent()
+            )}
           </div>
         </main>
       </div>

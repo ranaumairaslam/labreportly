@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ClipboardPlus, FileText, LogOut, Menu, Plus, Search, Settings, X } from "lucide-react";
+import { ClipboardPlus, FileText, LogOut, Menu, Plus, Search, Settings, X, Check, ChevronDown } from "lucide-react";
 import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
 import { readStoredBranding, storeBranding } from "@/lib/dashboardBranding";
+import LabReportTemplate from "../template/page";
 
 function createPaymentId(prefix, existingPayments = []) {
   let id;
@@ -80,8 +81,70 @@ export default function StaffDashboard() {
   const [regTests, setRegTests] = useState("");
   const [regTotalBill, setRegTotalBill] = useState("");
   const [regAdvancePaid, setRegAdvancePaid] = useState("");
+  const [regDiscountType, setRegDiscountType] = useState("flat");
+  const [regDiscountValue, setRegDiscountValue] = useState("");
 
-  const regPendingBalance = Math.max(0, (parseInt(regTotalBill) || 0) - (parseInt(regAdvancePaid) || 0));
+  // Report template multiselect states
+  const [reportTemplates, setReportTemplates] = useState([]);
+  const [isRegTemplateDropdownOpen, setIsRegTemplateDropdownOpen] = useState(false);
+  const [selectedRegTemplates, setSelectedRegTemplates] = useState([]);
+  const [regTemplateSearch, setRegTemplateSearch] = useState("");
+
+  // Inline report template editor session state
+  const [activeReportPatientData, setActiveReportPatientData] = useState(null);
+
+  // Derived tracking variable for instantaneous math calculations
+  const discountAmount = regDiscountType === "percentage"
+    ? Math.round(((parseInt(regTotalBill) || 0) * (parseFloat(regDiscountValue) || 0)) / 100)
+    : (parseInt(regDiscountValue) || 0);
+
+  const regPendingBalance = Math.max(0, (parseInt(regTotalBill) || 0) - discountAmount - (parseInt(regAdvancePaid) || 0));
+
+  const handleRegTemplateToggle = (tpl) => {
+    setSelectedRegTemplates((prev) => {
+      const isAlreadySelected = prev.some((item) => item.key === tpl.key);
+      let next;
+      if (isAlreadySelected) {
+        next = prev.filter((item) => item.key !== tpl.key);
+      } else {
+        next = [...prev, tpl];
+      }
+      
+      const testNames = next.map((item) => item.label).join(", ");
+      setRegTests(testNames);
+      
+      if (next.length > 0) {
+        // Auto populate specimen (since we don't have separate specimen field in staff-dashboard's simple layout, we can auto fill or leave it)
+        // Wait, staff dashboard does have "assigned tests" but not a specimen input in patient info, wait! Let's check: it doesn't have a specimen field in simple registration! So it defaults to Blood. We can just set it anyway, as it is saved in queueRecord.
+      }
+      return next;
+    });
+  };
+
+  const handleClearSelectedRegTemplates = () => {
+    setSelectedRegTemplates([]);
+    setRegTests("");
+  };
+
+  const handleOpenReportEditor = (patient) => {
+    const isCompleted = (patient.status || "").toLowerCase() === "completed" || Boolean(patient.lastReportNumber);
+    const data = {
+      source: isCompleted ? "report" : "staff",
+      reportNumber: patient.lastReportNumber || `${patient.id}-${Date.now()}`,
+      patientId: patient.id,
+      patientName: patient.patient,
+      contact: patient.contact || "",
+      age: patient.age || "",
+      gender: patient.gender || "",
+      tests: patient.tests || "",
+      registeredAt: patient.registeredAt || "",
+      totalBill: String(patient.totalBill || ""),
+      pendingBalance: String(patient.pendingBalance || ""),
+      refDoctor: patient.refDoctor || "",
+      specimen: patient.specimen || "Blood",
+    };
+    setActiveReportPatientData(data);
+  };
 
   useEffect(() => {
     const storedStaff = typeof window !== "undefined" ? window.localStorage.getItem("staff_profile") : null;
@@ -152,8 +215,21 @@ export default function StaffDashboard() {
       }
     }
 
+    async function loadReportTemplates() {
+      try {
+        const res = await fetch("/api/report-templates");
+        const data = await res.json();
+        if (res.ok && data.templates) {
+          setReportTemplates(data.templates);
+        }
+      } catch (err) {
+        console.warn("Could not load report templates", err);
+      }
+    }
+
     loadPatients();
     loadBranding();
+    loadReportTemplates();
   }, [router]);
 
   const baseMenuItems = [
@@ -202,6 +278,9 @@ export default function StaffDashboard() {
       gender: regGender,
       tests: regTests,
       totalBill: currentBillTotal,
+      discountType: regDiscountType,
+      discountValue: parseFloat(regDiscountValue) || 0,
+      discountAmount: discountAmount,
       advancePaid: currentAdvancePaid,
       pendingBalance: regPendingBalance,
       registeredAt: todayDate,
@@ -265,6 +344,9 @@ export default function StaffDashboard() {
       setRegTests("");
       setRegTotalBill("");
       setRegAdvancePaid("");
+      setRegDiscountType("flat");
+      setRegDiscountValue("");
+      setSelectedRegTemplates([]);
       setActiveTab("Report Generated");
     } catch (err) {
       console.warn("Patient registration request failed.", err);
@@ -348,9 +430,82 @@ export default function StaffDashboard() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Assigned Tests</label>
-              <Input value={regTests} onChange={(e) => setRegTests(e.target.value)} placeholder="CBC, ESR, Blood Sugar" className="h-11 border-slate-300" required />
+            <div className="relative">
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Select Report Templates</label>
+              <button
+                type="button"
+                onClick={() => setIsRegTemplateDropdownOpen(!isRegTemplateDropdownOpen)}
+                className="flex h-11 w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-black shadow-xs focus:outline-hidden focus:ring-2 focus:ring-emerald-100"
+              >
+                <span className="truncate">
+                  {selectedRegTemplates.length > 0
+                    ? `${selectedRegTemplates.length} selected`
+                    : "Choose report template(s)..."}
+                </span>
+                <ChevronDown className="h-4 w-4 text-slate-500" />
+              </button>
+
+              {isRegTemplateDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsRegTemplateDropdownOpen(false)} />
+                  <div className="absolute left-0 right-0 z-20 mt-1 max-h-60 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg animate-in fade-in duration-100">
+                    <div className="p-1 border-b mb-2">
+                      <Input
+                        placeholder="Search templates..."
+                        value={regTemplateSearch}
+                        onChange={(e) => setRegTemplateSearch(e.target.value)}
+                        className="h-8 text-xs bg-slate-50 text-black border-slate-300"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      {reportTemplates
+                        .filter((tpl) => tpl.label.toLowerCase().includes(regTemplateSearch.toLowerCase()))
+                        .map((tpl) => {
+                          const isChecked = selectedRegTemplates.some((item) => item.key === tpl.key);
+                          return (
+                            <label
+                              key={tpl.key}
+                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-100 cursor-pointer select-none"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleRegTemplateToggle(tpl)}
+                                className="h-4 w-4 rounded-sm border-slate-300 text-[#004d26] focus:ring-emerald-500"
+                              />
+                              <span className="font-medium text-black">{tpl.label}</span>
+                            </label>
+                          );
+                        })}
+                      {reportTemplates.filter((tpl) => tpl.label.toLowerCase().includes(regTemplateSearch.toLowerCase())).length === 0 && (
+                        <p className="text-center text-xs text-slate-400 py-2">No templates found</p>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-semibold text-slate-700">Assigned Tests (Editable)</label>
+                {selectedRegTemplates.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearSelectedRegTemplates}
+                    className="text-xs text-red-600 hover:underline"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+              <Input 
+                placeholder="CBC, ESR, Blood Sugar" 
+                className="h-11 border-slate-300" 
+                value={regTests}
+                onChange={(e) => setRegTests(e.target.value)}
+                required 
+              />
             </div>
           </div>
 
@@ -358,18 +513,59 @@ export default function StaffDashboard() {
             Billing Details
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Total Bill (PKR)</label>
-              <Input type="number" value={regTotalBill} onChange={(e) => setRegTotalBill(e.target.value)} placeholder="0" className="h-11 border-slate-300" required />
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Total Bill (PKR)</label>
+              <Input 
+                type="number" 
+                value={regTotalBill} 
+                onChange={(e) => setRegTotalBill(e.target.value)} 
+                placeholder="0" 
+                className="h-11 border-slate-300 bg-white font-semibold text-slate-800" 
+                required 
+              />
             </div>
+            
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-2">Advance Paid (PKR)</label>
-              <Input type="number" value={regAdvancePaid} onChange={(e) => setRegAdvancePaid(e.target.value)} placeholder="0" className="h-11 border-slate-300" />
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Discount Type</label>
+              <Select value={regDiscountType} onValueChange={(val) => setRegDiscountType(val)}>
+                <SelectTrigger className="h-11 border-slate-300 bg-white text-black">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent className="border-slate-300 text-black mt-2">
+                  <SelectItem value="flat">Flat Amount</SelectItem>
+                  <SelectItem value="percentage">Percentage (%)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-              <p className="text-xs font-bold uppercase text-slate-500">Pending Balance</p>
-              <p className="text-2xl font-bold text-red-600 mt-1">PKR {regPendingBalance.toLocaleString()}</p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">
+                Discount Value {regDiscountType === "percentage" ? "(%)" : "(PKR)"}
+              </label>
+              <Input 
+                type="number" 
+                placeholder={regDiscountType === "percentage" ? "e.g. 10%" : "e.g. 500"} 
+                className="h-11 border-slate-300 bg-white font-semibold text-slate-800" 
+                value={regDiscountValue}
+                onChange={(e) => setRegDiscountValue(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-2">Advance Paid (PKR)</label>
+              <Input 
+                type="number" 
+                value={regAdvancePaid} 
+                onChange={(e) => setRegAdvancePaid(e.target.value)} 
+                placeholder="0" 
+                className="h-11 border-slate-300 bg-white font-semibold text-emerald-800" 
+              />
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-3 flex flex-col justify-center">
+              <p className="text-[10px] font-bold uppercase text-slate-500">Pending Balance</p>
+              <p className="text-xl font-bold text-red-600 mt-0.5">PKR {regPendingBalance.toLocaleString()}</p>
             </div>
           </div>
 
@@ -391,11 +587,15 @@ export default function StaffDashboard() {
           <h2 className="text-3xl font-bold text-slate-800">Report Generated</h2>
           <p className="text-slate-500 text-sm mt-1">Open registered patient records and generate laboratory reports.</p>
         </div>
-        <Button asChild className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]">
-          <Link href="/template?source=staff">
-            <Plus className="w-4 h-4 mr-2" />
-            New Report
-          </Link>
+        <Button 
+          onClick={() => setActiveReportPatientData({
+            source: "staff",
+            tests: "Laboratory Report"
+          })}
+          className="bg-[#004d26] text-yellow-400 hover:bg-[#00361a]"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          New Report
         </Button>
       </div>
 
@@ -439,17 +639,23 @@ export default function StaffDashboard() {
                 <tr key={row.id ? `${row.id}-${index}` : `patient-${index}`} className="hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-4 font-bold text-slate-700">{row.id}</td>
                   <td className="px-6 py-4 text-slate-600 font-medium">
-                    <Link href={getTemplateHref(row)} className="text-[#004d26] hover:underline font-medium">
+                    <button 
+                      onClick={() => handleOpenReportEditor(row)} 
+                      className="text-[#004d26] hover:underline font-medium cursor-pointer text-left"
+                    >
                       {row.patient}
-                    </Link>
+                    </button>
                   </td>
                   <td className="px-6 py-4 text-slate-500 text-xs">{row.tests}</td>
                   <td className="px-6 py-4">{getStatusBadge(row.status)}</td>
                   <td className="px-6 py-4 text-right">
-                    <Link href={getTemplateHref(row)} className="inline-flex items-center text-[#004d26] hover:text-[#00361a] text-xs font-semibold">
+                    <button 
+                      onClick={() => handleOpenReportEditor(row)} 
+                      className="inline-flex items-center text-[#004d26] hover:text-[#00361a] text-xs font-semibold cursor-pointer border-none bg-transparent"
+                    >
                       <FileText className="w-4 h-4 mr-2" />
                       Generate Report
-                    </Link>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -503,7 +709,10 @@ export default function StaffDashboard() {
             return (
               <button
                 key={item.name}
-                onClick={() => setActiveTab(item.name)}
+                onClick={() => {
+                  setActiveTab(item.name);
+                  setActiveReportPatientData(null);
+                }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-all duration-200 ${
                   activeTab === item.name
                     ? "bg-yellow-400 text-[#004d26] shadow-md font-bold scale-[1.02]"
