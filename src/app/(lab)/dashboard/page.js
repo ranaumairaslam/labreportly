@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import {
   AlertTriangle,
   IdCard,
   ReceiptText,
+  LogOut,
 } from "lucide-react";
 import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
 import { readStoredBranding, storeBranding, normalizeBranding } from "@/lib/dashboardBranding";
@@ -131,6 +133,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("Overview");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
@@ -353,6 +356,24 @@ export default function Home() {
   const handleBrandingSave = (nextBranding) => {
     setBranding(nextBranding);
     storeBranding(nextBranding);
+  };
+
+  // Logs the admin out: clears the locally stored lab session and returns to the login screen.
+  const handleLogout = () => {
+
+    localStorage.removeItem("token");
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("lab_profile");
+      }
+    } catch (err) {
+      console.warn("Could not clear local session", err);
+    }
+    toast.success("Logged out successfully.");
+    router.push("/login");
+
+
+    console.log("Logout initiated. Clearing local session and redirecting to login.");
   };
 
   // Stats computation parameters
@@ -2294,7 +2315,7 @@ export default function Home() {
             );
           })}
         </nav>
-        <div className="px-3.5 pb-2">
+        <div className="px-3.5 pb-2 space-y-1">
           <button
             type="button"
             onClick={() => setIsCustomizerOpen(true)}
@@ -2302,6 +2323,14 @@ export default function Home() {
           >
             <Settings className="h-4 w-4 shrink-0" />
             Edit dashboard
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-red-200/90 hover:bg-red-500/15 hover:text-red-100 transition-all"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            Logout
           </button>
         </div>
         <div className="p-3.5 pt-3 border-t border-white/10">
@@ -2360,7 +2389,7 @@ export default function Home() {
                 );
               })}
             </nav>
-            <div className="px-3.5 pb-4">
+            <div className="px-3.5 pb-4 space-y-1">
               <button
                 type="button"
                 onClick={() => {
@@ -2371,6 +2400,17 @@ export default function Home() {
               >
                 <Settings className="h-4 w-4 shrink-0" />
                 Edit dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileSidebarOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-red-200/90 hover:bg-red-500/15 hover:text-red-100"
+              >
+                <LogOut className="h-4 w-4 shrink-0" />
+                Logout
               </button>
             </div>
           </aside>

@@ -123,10 +123,21 @@ export default function SuperAdminDashboard() {
     loadPatients();
   }, [router]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/super-admin/logout", { method: "POST" });
+    } catch (error) {
+      console.warn("Admin logout API failed", error);
+    }
+
     localStorage.removeItem("super_admin_token");
     toast.success("Logged out successfully");
-    router.push("/admin-login");
+
+    if (router?.replace) {
+      router.replace("/admin-login");
+    } else {
+      window.location.href = "/admin-login";
+    }
   };
 
   // Toggle lab status (Client-side only)
