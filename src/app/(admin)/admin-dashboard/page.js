@@ -90,7 +90,7 @@ export default function SuperAdminDashboard() {
         setLabs(data.labs || []);
       } catch (error) {
         console.error(error);
-        toast.error("Could not load laboratories. Check your credentials or MongoDB connection.");
+        toast.error("Could not load laboratories. Check your credentials or database connection.");
       } finally {
         setLoading(false);
       }

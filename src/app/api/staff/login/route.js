@@ -4,11 +4,18 @@ import jwt from "jsonwebtoken";
 
 const STAFF_EMAIL = process.env.STAFF_EMAIL || "staff@gmail.com";
 const STAFF_PASSWORD = process.env.STAFF_PASSWORD || "staff123";
+const authCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/",
+  maxAge: 60 * 60 * 24 * 7,
+};
 
 export async function POST(req) {
   try {
     await ensureDatabaseIndexes();
-    const { email, password } = await req.json();
+    const { email, password, labId } = await req.json();
 
     if (!email || !password) {
       return NextResponse.json({ message: "Missing email or password" }, { status: 400 });
@@ -19,7 +26,7 @@ export async function POST(req) {
     }
 
     const { staffAccounts } = await getCollections();
-    const staff = await staffAccounts.findOne({ email, password });
+    const staff = await staffAccounts.findOne({ email, password, ...(labId ? { labId } : {}) });
 
     let staffUser = null;
 
@@ -48,6 +55,7 @@ export async function POST(req) {
         {
           id: staffUser.id,
           email: staffUser.email,
+          labId: staffUser.labId || labId || null,
           role: "staff"
         },
         process.env.JWT_SECRET,
@@ -67,13 +75,7 @@ export async function POST(req) {
       response.cookies.set(
         "token",
         token,
-        {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          path: "/",
-          maxAge: 60 * 60 * 24 * 7
-        }
+        authCookieOptions
       );
 
       return response;

@@ -57,8 +57,9 @@ function createUniquePatientId(prefix = "#01/") {
 }
 
 function getLocalDateString(date = new Date()) {
-  const pad = (value) => value.toString().padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  const pad = (value) => String(value ?? 0).padStart(2, "0");
+  return `${safeDate.getFullYear()}-${pad(safeDate.getMonth() + 1)}-${pad(safeDate.getDate())}`;
 }
 
 function getPatientReportHref(patient) {
@@ -83,11 +84,13 @@ function getPatientReportHref(patient) {
 }
 
 function formatNumber(value) {
-  return value.toLocaleString("en-PK");
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount.toLocaleString("en-PK") : "0";
 }
 
 function formatPKR(value) {
-  return value.toLocaleString("en-PK");
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount.toLocaleString("en-PK") : "0";
 }
 
 /* Design Philosophy: Clinical Precision
@@ -206,9 +209,10 @@ export default function Home() {
 
   const handleOpenReportEditor = (patient) => {
     const isCompleted = (patient.status || "").toLowerCase() === "completed" || Boolean(patient.lastReportNumber);
+    const fallbackReportNumber = `${patient.id}-${String(patient.id || "report").slice(-4).toUpperCase()}-RPT`;
     const data = {
       source: isCompleted ? "report" : "admin",
-      reportNumber: patient.lastReportNumber || `${patient.id}-${Date.now()}`,
+      reportNumber: patient.lastReportNumber || fallbackReportNumber,
       patientId: patient.id,
       patientName: patient.patient,
       contact: patient.contact || "",
@@ -359,21 +363,25 @@ export default function Home() {
   };
 
   // Logs the admin out: clears the locally stored lab session and returns to the login screen.
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/labs/logout", { method: "POST", credentials: "include" });
+    } catch (err) {
+      console.warn("Logout API failed", err);
+    }
 
-    localStorage.removeItem("token");
     try {
       if (typeof window !== "undefined") {
+        window.localStorage.removeItem("token");
         window.localStorage.removeItem("lab_profile");
+        window.localStorage.removeItem("staff_profile");
       }
     } catch (err) {
       console.warn("Could not clear local session", err);
     }
+
     toast.success("Logged out successfully.");
-    router.push("/login");
-
-
-    console.log("Logout initiated. Clearing local session and redirecting to login.");
+    router.replace("/login");
   };
 
   // Stats computation parameters
@@ -486,7 +494,7 @@ export default function Home() {
 
       toast.success(data.databaseConnected === false
         ? `Registered ${generatedLabId} in demo mode.`
-        : `Registered! Linked ${generatedLabId} successfully to MongoDB.`
+        : `Registered! Linked ${generatedLabId} successfully to the database.`
       );
       
       // Automatically switch to the live queue to show the newly registered patient.
@@ -631,7 +639,7 @@ export default function Home() {
     setIsReportSaving(true);
 
     try {
-      const reportNumber = `${selectedReportPatient.id}-${Date.now()}`;
+      const reportNumber = `${selectedReportPatient.id}-${String(selectedReportPatient.id || "report").slice(-4).toUpperCase()}-RPT`;
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: {
@@ -710,7 +718,7 @@ export default function Home() {
     setIsReportSaving(true);
 
     try {
-      const reportNumber = `${patient.id}-${Date.now()}`;
+      const reportNumber = `${patient.id}-${String(patient.id || "report").slice(-4).toUpperCase()}-RPT`;
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: {

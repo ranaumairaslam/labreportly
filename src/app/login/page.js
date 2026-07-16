@@ -85,6 +85,8 @@ export default function StaffLogin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
+        credentials: "include",
+        cache: "no-store",
       });
 
       const labData = await labRes.json();
@@ -104,7 +106,9 @@ export default function StaffLogin() {
           dashboardMenuOrder: labData.lab.branding?.dashboardMenuOrder || ["Overview", "New Registration", "Revenue", "Reports"],
           staffMenuOrder: labData.lab.branding?.staffMenuOrder || ["Registration", "Report Generated"],
         }));
-        router.push("/dashboard");
+        if (typeof window !== "undefined") {
+          window.location.assign("/dashboard");
+        }
         return;
       }
 
@@ -127,7 +131,9 @@ export default function StaffLogin() {
           if (staffData.staff?.labId) {
             localStorage.setItem("lab_profile", JSON.stringify({ id: staffData.staff.labId }));
           }
-          router.push("/staff-dashboard");
+          if (typeof window !== "undefined") {
+            window.location.assign("/staff-dashboard");
+          }
           return;
         }
 

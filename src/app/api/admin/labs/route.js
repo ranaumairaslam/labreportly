@@ -1,10 +1,23 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { ensureDatabaseIndexes, getCollections, toObjectId } from "@/lib/db";
 
 const ADMIN_TOKEN = process.env.SUPER_ADMIN_TOKEN || "super_admin_demo_token";
 
 function unauthorized() {
   return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+}
+
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+async function hashPassword(password) {
+  if (!password) return "";
+  if (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$")) {
+    return password;
+  }
+  return bcrypt.hash(password, 10);
 }
 
 function formatLab(lab) {
@@ -57,7 +70,9 @@ export async function POST(req) {
       return NextResponse.json({ message: "Missing required parameters (name, email, password)" }, { status: 400 });
     }
 
-    const existingLab = await labsCollection.findOne({ email });
+    const normalizedEmail = normalizeEmail(email);
+    const hashedPassword = await hashPassword(password);
+    const existingLab = await labsCollection.findOne({ email: normalizedEmail });
     if (existingLab) {
       return NextResponse.json({ message: "A laboratory with this email already exists" }, { status: 409 });
     }
@@ -66,8 +81,8 @@ export async function POST(req) {
     const result = await labsCollection.insertOne({
       name,
       owner: owner || "N/A",
-      email,
-      password,
+      email: normalizedEmail,
+      password: hashedPassword,
       status: status || "Active",
       createdAt: now,
       updatedAt: now,
@@ -100,12 +115,22 @@ export async function PUT(req) {
       return NextResponse.json({ message: "Invalid laboratory ID" }, { status: 400 });
     }
 
+    const normalizedEmail = email !== undefined ? normalizeEmail(email) : undefined;
+    const hashedPassword = password !== undefined ? await hashPassword(password) : undefined;
+
+    if (normalizedEmail) {
+      const existingLab = await labsCollection.findOne({ email: normalizedEmail, _id: { $ne: _id } });
+      if (existingLab) {
+        return NextResponse.json({ message: "A laboratory with this email already exists" }, { status: 409 });
+      }
+    }
+
     const data = {
       ...(status !== undefined && { status }),
       ...(name !== undefined && { name }),
       ...(owner !== undefined && { owner }),
-      ...(email !== undefined && { email }),
-      ...(password !== undefined && { password }),
+      ...(normalizedEmail !== undefined && { email: normalizedEmail }),
+      ...(hashedPassword !== undefined && { password: hashedPassword }),
       ...(branding !== undefined && { branding }),
       ...(address !== undefined && { address }),
       ...(phone !== undefined && { phone }),

@@ -1,5 +1,23 @@
 import { NextResponse } from "next/server";
-import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
+
+function decodeJwtPayload(token) {
+    if (!token || typeof token !== "string") return null;
+
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    try {
+        const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+        const decoded = atob(padded);
+        const utf8 = decodeURIComponent(
+            Array.from(decoded).map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, "0")}`).join("")
+        );
+        return JSON.parse(utf8);
+    } catch {
+        return null;
+    }
+}
 
 export async function middleware(request) {
     const labToken = request.cookies.get("token")?.value;
@@ -28,27 +46,29 @@ export async function middleware(request) {
     }
 
     if (labToken) {
-        try {
-            await ensureDatabaseIndexes();
-            const collections = await getCollections();
-            const labs = collections?.labs;
-            if (!labs) {
-                console.warn("Middleware: labs collection missing");
-                return NextResponse.redirect(new URL("/", request.url));
-            }
+        const decoded = decodeJwtPayload(labToken);
+        const role = decoded?.role;
 
-            const lab = await labs.findOne({ token: labToken });
-            if (!lab) {
-                return NextResponse.redirect(new URL("/", request.url));
-            }
-        } catch (err) {
-            console.error("Middleware DB check failed:", err);
+        if (!decoded) {
+            console.warn("Middleware: invalid lab token");
+            return NextResponse.redirect(new URL("/", request.url));
+        }
+
+        if (isDashboard && role !== "lab_admin") {
+            return NextResponse.redirect(new URL("/", request.url));
+        }
+
+        if (isStaffDashboard && role !== "staff") {
             return NextResponse.redirect(new URL("/", request.url));
         }
     }
 
     if (isLoginPage && labToken) {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        const decoded = decodeJwtPayload(labToken);
+        const redirectPath = decoded?.role === "staff" ? "/staff-dashboard" : "/dashboard";
+        if (decoded) {
+            return NextResponse.redirect(new URL(redirectPath, request.url));
+        }
     }
 
     return NextResponse.next();

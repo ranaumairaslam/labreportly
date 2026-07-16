@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import jwt from "jsonwebtoken";
 import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
 
 function cleanDocument(document) {
@@ -9,21 +10,34 @@ function cleanDocument(document) {
   };
 }
 
+function getAuthenticatedLabId(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) return null;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-lab-secret");
+    return decoded?.labId || decoded?.id || null;
+  } catch (error) {
+    return null;
+  }
+}
+
 export async function GET(req) {
   try {
     await ensureDatabaseIndexes();
-    const { reports } = await getCollections();
     const url = new URL(req.url);
     const reportNumber = url.searchParams.get("reportNumber");
-    const labId = url.searchParams.get("labId");
+    const requestedLabId = url.searchParams.get("labId")?.trim();
+    const authLabId = getAuthenticatedLabId(req);
+    const scopeLabId = authLabId || requestedLabId || null;
+    const { reports } = await getCollections(scopeLabId);
 
-    if (!reportNumber && !labId) {
+    if (!reportNumber && !scopeLabId) {
       return NextResponse.json({ reports: [] });
     }
 
     const filter = {};
     if (reportNumber) filter.reportNumber = reportNumber;
-    if (labId) filter.labId = labId;
+    if (scopeLabId) filter.labId = scopeLabId;
 
     const docs = await reports.find(filter).sort({ createdAt: -1 }).toArray();
     return NextResponse.json({ reports: docs.map(cleanDocument) });
@@ -90,6 +104,7 @@ export async function POST(req) {
 
     const now = new Date();
     const storedResults = Array.isArray(results) ? results : (Array.isArray(tests) ? tests : []);
+    const scopeLabId = getAuthenticatedLabId(req) || labId || "default-lab";
 
     const result = await reports.insertOne({
       reportNumber,
@@ -101,7 +116,7 @@ export async function POST(req) {
       totalBill: totalBill || null,
       pendingBalance: pendingBalance || null,
       registeredAt: registeredAt || null,
-      labId: labId || "default-lab",
+      labId: scopeLabId,
       results: storedResults,
       status: status || "Completed",
       findings,

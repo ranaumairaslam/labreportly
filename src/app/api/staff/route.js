@@ -1,15 +1,33 @@
 import { NextResponse } from "next/server";
+import jwt from "jsonwebtoken";
 import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
+
+function getAuthenticatedLabId(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) return null;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-lab-secret");
+    return decoded?.labId || decoded?.id || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
 
 export async function POST(req) {
   try {
     await ensureDatabaseIndexes();
-    const { staffAccounts } = await getCollections();
     const body = await req.json();
+    const authLabId = getAuthenticatedLabId(req);
+    const scopeLabId = authLabId || body.labId?.trim() || null;
+    const { staffAccounts } = await getCollections(scopeLabId);
     const name = body.name?.trim();
-    const email = body.email?.trim().toLowerCase();
+    const email = normalizeEmail(body.email);
     const password = body.password;
-    const labId = body.labId?.trim();
+    const labId = scopeLabId || body.labId?.trim();
     const role = body.role?.trim() || "Staff";
     const requesterRole = body.requesterRole?.trim();
 
@@ -61,14 +79,16 @@ export async function GET(req) {
   try {
     await ensureDatabaseIndexes();
     const { searchParams } = new URL(req.url);
-    const labId = searchParams.get("labId");
+    const requestedLabId = searchParams.get("labId")?.trim();
+    const authLabId = getAuthenticatedLabId(req);
+    const scopeLabId = authLabId || requestedLabId || null;
 
-    if (!labId) {
+    if (!scopeLabId) {
       return NextResponse.json({ staff: [] });
     }
 
-    const { staffAccounts } = await getCollections();
-    const filter = { labId };
+    const { staffAccounts } = await getCollections(scopeLabId);
+    const filter = scopeLabId ? { labId: scopeLabId } : {};
     const accounts = await staffAccounts.find(filter).sort({ createdAt: -1 }).toArray();
 
     return NextResponse.json({ staff: accounts.map((account) => ({

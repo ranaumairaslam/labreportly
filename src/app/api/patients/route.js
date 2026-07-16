@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import jwt from "jsonwebtoken";
 import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
 
 function cleanDocument(document) {
@@ -6,28 +7,33 @@ function cleanDocument(document) {
   return rest;
 }
 
+function getAuthenticatedLabId(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) return null;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-lab-secret");
+    return decoded?.labId || decoded?.id || null;
+  } catch (error) {
+    return null;
+  }
+}
+
 export async function GET(req) {
   try {
     await ensureDatabaseIndexes();
-    const collections = await getCollections();
     const url = new URL(req.url);
-    const labId = url.searchParams.get("labId");
-
+    const requestedLabId = url.searchParams.get("labId")?.trim();
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
     const ADMIN_TOKEN = process.env.SUPER_ADMIN_TOKEN || "super_admin_demo_token";
+    const authLabId = getAuthenticatedLabId(req);
+    const isAdminRequest = Boolean(token && token === ADMIN_TOKEN);
+    const scopeLabId = isAdminRequest ? null : (authLabId || requestedLabId || null);
+    const collections = await getCollections(scopeLabId);
 
-    let filter;
-    if (labId) {
-      filter = { labId };
-    } else if (token && token === ADMIN_TOKEN) {
-      filter = {};
-    } else {
-      return NextResponse.json({
-        patients: [],
-        advancePayments: [],
-        pendingPayments: [],
-      });
+    let filter = {};
+    if (!isAdminRequest && scopeLabId) {
+      filter = { labId: scopeLabId };
     }
 
     const [patients, advancePayments, pendingPayments] = await Promise.all([
@@ -57,7 +63,9 @@ export async function POST(req) {
 
   try {
     await ensureDatabaseIndexes();
-    const collections = await getCollections();
+    const authLabId = getAuthenticatedLabId(req);
+    const scopeLabId = authLabId || patient?.labId || null;
+    const collections = await getCollections(scopeLabId);
 
     const existingPatient = await collections.patients.findOne({ id: patient.id });
     if (existingPatient) {
@@ -107,8 +115,10 @@ export async function POST(req) {
 export async function PUT(req) {
   try {
     await ensureDatabaseIndexes();
-    const collections = await getCollections();
     const body = await req.json();
+    const authLabId = getAuthenticatedLabId(req);
+    const scopeLabId = authLabId || body?.labId || null;
+    const collections = await getCollections(scopeLabId);
     const { id, pendingPaymentId, advancePayment, reportSummary, ...updates } = body || {};
 
     if (!id) {
@@ -178,7 +188,9 @@ export async function PUT(req) {
 export async function DELETE(req) {
   try {
     await ensureDatabaseIndexes();
-    const { patients, advancePayments, pendingPayments } = await getCollections();
+    const authLabId = getAuthenticatedLabId(req);
+    const scopeLabId = authLabId || new URL(req.url).searchParams.get("labId")?.trim() || null;
+    const { patients, advancePayments, pendingPayments } = await getCollections(scopeLabId);
     const url = new URL(req.url);
     const patientId = url.searchParams.get("id");
 

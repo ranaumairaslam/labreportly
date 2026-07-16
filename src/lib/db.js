@@ -1,7 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 
 const databaseUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.NEON_DATABASE_URL;
-
 const globalForDb = globalThis;
 
 function getSql() {
@@ -20,15 +19,13 @@ function getSql() {
   return globalForDb.neonSql;
 }
 
-function getJsonValue(document, field) {
-  return document[field] === undefined ? null : document[field];
-}
-
 function normalizeDocument(row) {
   if (!row) return null;
+
+  const data = typeof row.data === "string" ? JSON.parse(row.data) : row.data || {};
   return {
     _id: row._id || row.id,
-    ...row.data,
+    ...data,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -38,18 +35,27 @@ function normalizeRows(rows) {
   return rows.map(normalizeDocument);
 }
 
-function getFilterEntries(filter = {}) {
-  return Object.entries(filter);
-}
+function buildWhereClause(filter = {}) {
+  const entries = Object.entries(filter).filter(([, value]) => value !== undefined);
+  if (!entries.length) {
+    return { query: "", values: [] };
+  }
 
-function getFirstFilterEntry(filter = {}) {
-  const entries = getFilterEntries(filter);
-  return entries.length ? entries[0] : null;
-}
+  const clauses = [];
+  const values = [];
 
-function getSortEntry(sortSpec = {}) {
-  const entries = Object.entries(sortSpec);
-  return entries.length ? entries[0] : null;
+  entries.forEach(([field, value], index) => {
+    if (field === "_id") {
+      clauses.push(`id = $${index + 1}`);
+      values.push(value);
+      return;
+    }
+
+    clauses.push(`data->>$${index + 1} = $${index + 2}`);
+    values.push(field, String(value));
+  });
+
+  return { query: ` WHERE ${clauses.join(" AND ")}`, values };
 }
 
 function createFinder(tableName, filter = {}) {
@@ -69,71 +75,32 @@ function createFinder(tableName, filter = {}) {
 
 async function queryDocuments(tableName, filter = {}, sortSpec = {}) {
   const sql = getSql();
-  const filterEntries = getFilterEntries(filter);
-  const sortEntry = getSortEntry(sortSpec);
-  const sortField = sortEntry?.[0] || "createdAt";
-  const sortDirection = sortEntry?.[1] === -1 ? "DESC" : "ASC";
-  const orderBy = sortField === "createdAt" ? "created_at" : "updated_at";
+  const { query: whereClause, values } = buildWhereClause(filter);
+  const sortEntries = Object.entries(sortSpec);
+  const [sortField = "createdAt", direction = 1] = sortEntries[0] || [];
+  const orderBy = sortField === "createdAt" ? "created_at" : sortField === "updatedAt" ? "updated_at" : sortField;
+  const sortDirection = direction === -1 ? "DESC" : "ASC";
 
-  let query = `SELECT id AS _id, data, created_at, updated_at FROM ${tableName}`;
-  let values = [];
+  const rows = await sql.query(
+    `SELECT id AS _id, data, created_at, updated_at FROM ${tableName}${whereClause} ORDER BY ${orderBy} ${sortDirection}`,
+    values
+  );
 
-  if (filterEntries.length) {
-    const clauses = filterEntries.map(([field, value], index) => {
-      values.push(field, String(value));
-      return `data->>$${index * 2 + 1} = $${index * 2 + 2}`;
-    });
-    query += ` WHERE ${clauses.join(" AND ")}`;
-  }
-
-  query += ` ORDER BY ${orderBy} ${sortDirection}`;
-  const rows = await sql.query(query, values);
   return normalizeRows(rows);
 }
 
-function createCollection(tableName, uniqueField = null) {
+function createCollection(tableName) {
   return {
-    async createIndex() {
-      return null;
-    },
-
-    async countDocuments() {
-      const sql = getSql();
-      const rows = await sql.query(`SELECT COUNT(*)::int AS count FROM ${tableName}`);
-      return rows[0]?.count || 0;
-    },
-
     find(filter = {}) {
       return createFinder(tableName, filter);
     },
 
     async findOne(filter = {}) {
       const sql = getSql();
-      const id = filter._id || null;
-
-      if (id) {
-        const rows = await sql.query(
-          `SELECT id AS _id, data, created_at, updated_at FROM ${tableName} WHERE id = $1 LIMIT 1`,
-          [id]
-        );
-        return normalizeDocument(rows[0]);
-      }
-
-      const filterEntry = getFirstFilterEntry(filter);
-      if (!filterEntry) {
-        const rows = await sql.query(
-          `SELECT id AS _id, data, created_at, updated_at FROM ${tableName} ORDER BY created_at ASC LIMIT 1`
-        );
-        return normalizeDocument(rows[0]);
-      }
-
-      const [field, value] = filterEntry;
+      const { query: whereClause, values } = buildWhereClause(filter);
       const rows = await sql.query(
-        `SELECT id AS _id, data, created_at, updated_at
-         FROM ${tableName}
-         WHERE data->>$1 = $2
-         LIMIT 1`,
-        [field, String(value)]
+        `SELECT id AS _id, data, created_at, updated_at FROM ${tableName}${whereClause} LIMIT 1`,
+        values
       );
       return normalizeDocument(rows[0]);
     },
@@ -143,12 +110,10 @@ function createCollection(tableName, uniqueField = null) {
       const createdAt = document.createdAt || new Date();
       const updatedAt = document.updatedAt || createdAt;
       const rows = await sql.query(
-        `INSERT INTO ${tableName} (data, created_at, updated_at)
-         VALUES ($1::jsonb, $2, $3)
-         RETURNING id`,
+        `INSERT INTO ${tableName} (data, created_at, updated_at) VALUES ($1::jsonb, $2, $3) RETURNING id`,
         [JSON.stringify(document), createdAt, updatedAt]
       );
-      return { insertedId: rows[0].id };
+      return { insertedId: rows[0]?.id };
     },
 
     async insertMany(documents) {
@@ -160,36 +125,34 @@ function createCollection(tableName, uniqueField = null) {
       return { insertedCount: insertedIds.length, insertedIds };
     },
 
-    async findOneAndUpdate(filter, update) {
+    async findOneAndUpdate(filter, update = {}) {
       const sql = getSql();
       const current = await this.findOne(filter);
       if (!current) return null;
 
       const nextData = {
         ...current,
-        ...(update?.$set || {}),
+        ...(update.$set || {}),
       };
       delete nextData._id;
       delete nextData.createdAt;
       delete nextData.updatedAt;
 
-      if (update?.$push) {
-        for (const [field, value] of Object.entries(update.$push)) {
+      if (update.$push) {
+        Object.entries(update.$push).forEach(([field, value]) => {
           nextData[field] = Array.isArray(nextData[field]) ? [...nextData[field], value] : [value];
-        }
+        });
       }
 
       const rows = await sql.query(
-        `UPDATE ${tableName}
-         SET data = $1::jsonb, updated_at = $2
-         WHERE id = $3
-         RETURNING id AS _id, data, created_at, updated_at`,
-        [JSON.stringify(nextData), update?.$set?.updatedAt || new Date(), current._id]
+        `UPDATE ${tableName} SET data = $1::jsonb, updated_at = $2 WHERE id = $3 RETURNING id AS _id, data, created_at, updated_at`,
+        [JSON.stringify(nextData), update.$set?.updatedAt || new Date(), current._id]
       );
-      return normalizeDocument(rows[0]);
+
+      return { value: normalizeDocument(rows[0]) };
     },
 
-    async updateOne(filter, update, options = {}) {
+    async updateOne(filter, update = {}, options = {}) {
       const current = await this.findOne(filter);
       if (current) {
         await this.findOneAndUpdate(filter, update);
@@ -201,8 +164,8 @@ function createCollection(tableName, uniqueField = null) {
       }
 
       const document = {
-        ...(update?.$setOnInsert || {}),
-        ...(update?.$set || {}),
+        ...(update.$setOnInsert || {}),
+        ...(update.$set || {}),
       };
       const result = await this.insertOne(document);
       return { matchedCount: 0, modifiedCount: 0, upsertedId: result.insertedId };
@@ -210,29 +173,14 @@ function createCollection(tableName, uniqueField = null) {
 
     async deleteOne(filter = {}) {
       const sql = getSql();
-      const id = filter._id || null;
-
-      if (id) {
-        const rows = await sql.query(`DELETE FROM ${tableName} WHERE id = $1 RETURNING id`, [id]);
-        return { deletedCount: rows.length };
-      }
-
-      const filterEntry = getFirstFilterEntry(filter);
-      if (!filterEntry) return { deletedCount: 0 };
-
-      const [field, value] = filterEntry;
-      const rows = await sql.query(
-        `DELETE FROM ${tableName} WHERE data->>$1 = $2 RETURNING id`,
-        [field, String(value)]
-      );
+      const { query: whereClause, values } = buildWhereClause(filter);
+      const rows = await sql.query(`DELETE FROM ${tableName}${whereClause} RETURNING id`, values);
       return { deletedCount: rows.length };
     },
 
     async deleteMany(filter = {}) {
       return this.deleteOne(filter);
     },
-
-    uniqueField,
   };
 }
 
@@ -242,84 +190,92 @@ export async function getDb() {
 
 export async function getCollections() {
   return {
-    labs: createCollection("labs", "email"),
-    patients: createCollection("patients", "id"),
-    advancePayments: createCollection("advance_payments", "id"),
-    pendingPayments: createCollection("pending_payments", "id"),
-    reports: createCollection("reports", "reportNumber"),
-    staffAccounts: createCollection("staff_accounts", "email"),
+    labs: createCollection("labs"),
+    patients: createCollection("patients"),
+    advancePayments: createCollection("advance_payments"),
+    pendingPayments: createCollection("pending_payments"),
+    reports: createCollection("reports"),
+    staffAccounts: createCollection("staff_accounts"),
   };
 }
 
 export async function ensureDatabaseIndexes() {
-  const sql = getSql();
+  if (globalForDb.dbInitPromise) {
+    return globalForDb.dbInitPromise;
+  }
 
-  await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
+  globalForDb.dbInitPromise = (async () => {
+    const sql = getSql();
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS labs (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      data jsonb NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
+    await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS patients (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      data jsonb NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS labs (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        data jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS advance_payments (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      data jsonb NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS patients (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        data jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS pending_payments (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      data jsonb NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS advance_payments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        data jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS reports (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      data jsonb NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS pending_payments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        data jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS staff_accounts (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      data jsonb NOT NULL,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS reports (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        data jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
 
-  await Promise.all([
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS labs_email_idx ON labs ((data->>'email'))`,
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS patients_public_id_idx ON patients ((data->>'id'))`,
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS advance_payments_public_id_idx ON advance_payments ((data->>'id'))`,
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS pending_payments_public_id_idx ON pending_payments ((data->>'id'))`,
-    sql`CREATE INDEX IF NOT EXISTS reports_patient_id_idx ON reports ((data->>'patientId'))`,
-    sql`CREATE INDEX IF NOT EXISTS reports_number_idx ON reports ((data->>'reportNumber'))`,
-    sql`CREATE UNIQUE INDEX IF NOT EXISTS staff_accounts_lab_email_idx ON staff_accounts ((data->>'labId'), (data->>'email'))`,
-    sql`CREATE INDEX IF NOT EXISTS staff_accounts_lab_id_idx ON staff_accounts ((data->>'labId'))`,
-  ]);
+    await sql`
+      CREATE TABLE IF NOT EXISTS staff_accounts (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        data jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+
+    await Promise.all([
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS labs_email_idx ON labs ((data->>'email'))`,
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS patients_public_id_idx ON patients ((data->>'id'))`,
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS advance_payments_public_id_idx ON advance_payments ((data->>'id'))`,
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS pending_payments_public_id_idx ON pending_payments ((data->>'id'))`,
+      sql`CREATE INDEX IF NOT EXISTS reports_patient_id_idx ON reports ((data->>'patientId'))`,
+      sql`CREATE INDEX IF NOT EXISTS reports_number_idx ON reports ((data->>'reportNumber'))`,
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS staff_accounts_lab_email_idx ON staff_accounts ((data->>'labId'), (data->>'email'))`,
+      sql`CREATE INDEX IF NOT EXISTS staff_accounts_lab_id_idx ON staff_accounts ((data->>'labId'))`,
+    ]);
+  })();
+
+  return globalForDb.dbInitPromise;
 }
 
 export function toObjectId(id) {
