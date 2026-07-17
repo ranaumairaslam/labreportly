@@ -95,10 +95,21 @@ export async function POST(req) {
     return res;
   } catch (error) {
     console.error("POST /api/labs/login error:", error);
+    
+    // Provide more helpful error messages
+    let errorMessage = "Internal Server Error";
+    if (error?.message?.includes("ENOTFOUND")) {
+      errorMessage = "Database connection failed - unable to reach the database server";
+    } else if (error?.message?.includes("connect")) {
+      errorMessage = "Database connection error - please check the database configuration";
+    } else if (error?.message?.includes("authentication")) {
+      errorMessage = "Database authentication failed - invalid credentials";
+    }
+    
     return NextResponse.json(
       {
         success: false,
-        message: "Internal Server Error",
+        message: errorMessage,
         error: process.env.NODE_ENV === "development" ? error.message : undefined,
       },
       { status: 500 }

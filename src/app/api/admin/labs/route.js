@@ -26,8 +26,8 @@ async function getNextLabId(collections) {
     throw new Error("counters collection is not registered in getCollections()");
   }
   const result = await collections.counters.findOneAndUpdate(
-    { _id: "labId" },
-    { $inc: { seq: 1 } },
+    { counterId: "labId" },
+    { $inc: { seq: 1 }, $set: { counterId: "labId" } },
     { upsert: true, returnDocument: "after" }
   );
   // Driver-version safe: some driver versions return the doc directly,

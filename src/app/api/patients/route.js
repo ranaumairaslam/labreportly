@@ -64,17 +64,29 @@ export async function POST(req) {
   try {
     await ensureDatabaseIndexes();
     const authLabId = getAuthenticatedLabId(req);
+    // IMPORTANT: this is the labId that will actually be stamped onto every
+    // document we write below. Everything must agree with this value.
     const scopeLabId = authLabId || patient?.labId || null;
     const collections = await getCollections(scopeLabId);
 
-    const existingPatient = await collections.patients.findOne({ id: patient.id });
+    // Scope the duplicate-id check to this lab, not globally, in case the
+    // underlying collections are shared across labs.
+    const existingPatient = await collections.patients.findOne({
+      id: patient.id,
+      ...(scopeLabId ? { labId: scopeLabId } : {}),
+    });
     if (existingPatient) {
       return NextResponse.json({ message: "A patient with this ID already exists" }, { status: 409 });
     }
 
     const now = new Date();
+
+    // FIX: previously labId was never written onto the patient document,
+    // so GET's `{ labId: scopeLabId }` filter could never match it and the
+    // newly registered patient would "disappear" from the dashboard.
     await collections.patients.insertOne({
       ...patient,
+      labId: scopeLabId,
       createdAt: now,
       updatedAt: now,
     });
@@ -82,6 +94,8 @@ export async function POST(req) {
     if (advancePayment?.id) {
       await collections.advancePayments.insertOne({
         ...advancePayment,
+        labId: scopeLabId,
+        patientId: patient.id,
         createdAt: now,
         updatedAt: now,
       });
@@ -90,12 +104,17 @@ export async function POST(req) {
     if (pendingPayment?.id) {
       await collections.pendingPayments.insertOne({
         ...pendingPayment,
+        labId: scopeLabId,
+        patientId: patient.id,
         createdAt: now,
         updatedAt: now,
       });
     }
 
-    return NextResponse.json({ message: "Patient added", patient }, { status: 201 });
+    return NextResponse.json(
+      { message: "Patient added", patient: { ...patient, labId: scopeLabId } },
+      { status: 201 }
+    );
   } catch (e) {
     console.error("POST /api/patients error:", e);
     if (e.message?.includes("database is not configured")) {
@@ -125,6 +144,9 @@ export async function PUT(req) {
       return NextResponse.json({ message: "Missing patient ID" }, { status: 400 });
     }
 
+    // Never let the client overwrite the lab ownership of a record via updates.
+    delete updates.labId;
+
     const updateOps = {
       $set: { ...updates, updatedAt: new Date() },
     };
@@ -133,8 +155,12 @@ export async function PUT(req) {
       updateOps.$push = { reports: reportSummary };
     }
 
+    // FIX: scope the match to this lab so one lab can't edit another lab's
+    // patient record if patient ids ever collide across labs.
+    const matchFilter = scopeLabId ? { id, labId: scopeLabId } : { id };
+
     const result = await collections.patients.findOneAndUpdate(
-      { id },
+      matchFilter,
       updateOps,
       { returnDocument: "after" }
     );
@@ -147,17 +173,22 @@ export async function PUT(req) {
 
     let pendingDeleted = 0;
     if (pendingPaymentId) {
-      const delRes = await collections.pendingPayments.deleteOne({ id: pendingPaymentId });
+      const delRes = await collections.pendingPayments.deleteOne({
+        id: pendingPaymentId,
+        ...(scopeLabId ? { labId: scopeLabId } : {}),
+      });
       pendingDeleted = delRes.deletedCount || 0;
     }
 
     let advanceUpserted = false;
     if (advancePayment?.id) {
       const updRes = await collections.advancePayments.updateOne(
-        { id: advancePayment.id },
+        { id: advancePayment.id, ...(scopeLabId ? { labId: scopeLabId } : {}) },
         {
           $set: {
             ...advancePayment,
+            labId: scopeLabId,
+            patientId: id,
             updatedAt: new Date(),
           },
           $setOnInsert: {
@@ -198,14 +229,17 @@ export async function DELETE(req) {
       return NextResponse.json({ message: "Missing patient ID" }, { status: 400 });
     }
 
-    const result = await patients.deleteOne({ id: patientId });
+    // FIX: scope delete to this lab so one lab can't delete another lab's patient.
+    const matchFilter = scopeLabId ? { id: patientId, labId: scopeLabId } : { id: patientId };
+
+    const result = await patients.deleteOne(matchFilter);
     if (result.deletedCount === 0) {
       return NextResponse.json({ message: "Patient not found" }, { status: 404 });
     }
 
     await Promise.all([
-      advancePayments.deleteMany({ patientId }),
-      pendingPayments.deleteMany({ patientId }),
+      advancePayments.deleteMany({ patientId, ...(scopeLabId ? { labId: scopeLabId } : {}) }),
+      pendingPayments.deleteMany({ patientId, ...(scopeLabId ? { labId: scopeLabId } : {}) }),
     ]);
 
     return NextResponse.json({ message: "Patient deleted successfully" });

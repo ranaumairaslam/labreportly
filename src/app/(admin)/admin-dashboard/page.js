@@ -223,7 +223,16 @@ export default function SuperAdminDashboard() {
     setFormSubmitting(true);
     const token = localStorage.getItem("super_admin_token");
 
+    if (!token) {
+      toast.error("Authentication token missing. Please log in again.");
+      setFormSubmitting(false);
+      router.push("/admin-login");
+      return;
+    }
+
     try {
+      console.log("Registering lab with token:", token.substring(0, 10) + "...");
+      
       const res = await fetch("/api/admin/labs", {
         method: "POST",
         headers: {
@@ -236,6 +245,7 @@ export default function SuperAdminDashboard() {
 
       if (!res.ok) {
         if (res.status === 401) {
+          console.error("Unauthorized: Token mismatch or expired");
           localStorage.removeItem("super_admin_token");
           router.push("/admin-login");
           return;
@@ -243,13 +253,16 @@ export default function SuperAdminDashboard() {
         throw new Error(data.message || "Could not onboard laboratory");
       }
 
+      // Show success with lab details
       setLabs(prev => [data.lab, ...prev]);
-      toast.success("Laboratory onboarded successfully!");
+      toast.success(`✓ Laboratory "${form.name}" registered successfully!`, {
+        description: `Lab ID: ${data.lab.labId} | Email: ${data.lab.email}`
+      });
       setShowOnboardModal(false);
       setForm({ name: "", owner: "", email: "", password: "" });
     } catch (error) {
-      console.error(error);
-      toast.error(error.message || "Could not onboard laboratory. Check your credentials or MongoDB connection.");
+      console.error("Registration error:", error);
+      toast.error(error.message || "Could not register laboratory. Check your credentials or database connection.");
     } finally {
       setFormSubmitting(false);
     }
