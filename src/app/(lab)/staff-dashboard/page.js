@@ -26,8 +26,9 @@ function createUniquePatientId(prefix = "#01/") {
 }
 
 function getLocalDateString(date = new Date()) {
-  const pad = (value) => value.toString().padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  const pad = (value) => String(value ?? 0).padStart(2, "0");
+  return `${safeDate.getFullYear()}-${pad(safeDate.getMonth() + 1)}-${pad(safeDate.getDate())}`;
 }
 
 export default function StaffDashboard() {
@@ -104,9 +105,10 @@ export default function StaffDashboard() {
 
   const handleOpenReportEditor = (patient) => {
     const isCompleted = (patient.status || "").toLowerCase() === "completed" || Boolean(patient.lastReportNumber);
+    const fallbackReportNumber = `${patient.id || "REPORT"}-${String(patient.id || "report").slice(-4).toUpperCase()}-RPT`;
     const data = {
       source: isCompleted ? "report" : "staff",
-      reportNumber: patient.lastReportNumber || `${patient.id}-${Date.now()}`,
+      reportNumber: patient.lastReportNumber || fallbackReportNumber,
       patientId: patient.id,
       patientName: patient.patient,
       contact: patient.contact || "",
@@ -222,9 +224,23 @@ export default function StaffDashboard() {
     storeBranding(nextBranding);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("staff_profile");
-    router.push("/");
+  const handleLogout = async () => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("staff_profile");
+        window.localStorage.removeItem("lab_profile");
+        window.localStorage.removeItem("token");
+      }
+
+      await fetch("/api/labs/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.warn("Could not clear local session", err);
+    }
+
+    router.replace("/");
   };
 
   const todayDate = getLocalDateString();

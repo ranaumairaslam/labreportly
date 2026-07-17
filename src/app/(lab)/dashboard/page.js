@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import {
   AlertTriangle,
   IdCard,
   ReceiptText,
+  LogOut,
 } from "lucide-react";
 import DashboardCustomizer from "@/components/dashboard/DashboardCustomizer";
 import { readStoredBranding, storeBranding, normalizeBranding } from "@/lib/dashboardBranding";
@@ -55,8 +57,9 @@ function createUniquePatientId(prefix = "#01/") {
 }
 
 function getLocalDateString(date = new Date()) {
-  const pad = (value) => value.toString().padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+  const pad = (value) => String(value ?? 0).padStart(2, "0");
+  return `${safeDate.getFullYear()}-${pad(safeDate.getMonth() + 1)}-${pad(safeDate.getDate())}`;
 }
 
 function getPatientReportHref(patient) {
@@ -81,11 +84,13 @@ function getPatientReportHref(patient) {
 }
 
 function formatNumber(value) {
-  return value.toLocaleString("en-PK");
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount.toLocaleString("en-PK") : "0";
 }
 
 function formatPKR(value) {
-  return value.toLocaleString("en-PK");
+  const amount = Number(value ?? 0);
+  return Number.isFinite(amount) ? amount.toLocaleString("en-PK") : "0";
 }
 
 /* Design Philosophy: Clinical Precision
@@ -131,6 +136,7 @@ function StatusBadge({ status }) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState("Overview");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
@@ -203,9 +209,10 @@ export default function Home() {
 
   const handleOpenReportEditor = (patient) => {
     const isCompleted = (patient.status || "").toLowerCase() === "completed" || Boolean(patient.lastReportNumber);
+    const fallbackReportNumber = `${patient.id}-${String(patient.id || "report").slice(-4).toUpperCase()}-RPT`;
     const data = {
       source: isCompleted ? "report" : "admin",
-      reportNumber: patient.lastReportNumber || `${patient.id}-${Date.now()}`,
+      reportNumber: patient.lastReportNumber || fallbackReportNumber,
       patientId: patient.id,
       patientName: patient.patient,
       contact: patient.contact || "",
@@ -355,6 +362,28 @@ export default function Home() {
     storeBranding(nextBranding);
   };
 
+  // Logs the admin out: clears the locally stored lab session and returns to the login screen.
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/labs/logout", { method: "POST", credentials: "include" });
+    } catch (err) {
+      console.warn("Logout API failed", err);
+    }
+
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("token");
+        window.localStorage.removeItem("lab_profile");
+        window.localStorage.removeItem("staff_profile");
+      }
+    } catch (err) {
+      console.warn("Could not clear local session", err);
+    }
+
+    toast.success("Logged out successfully.");
+    router.replace("/login");
+  };
+
   // Stats computation parameters
   const todayDate = getLocalDateString();
   const todaysPatients = testQueueData.filter((patient) => patient.registeredAt === todayDate);
@@ -465,7 +494,7 @@ export default function Home() {
 
       toast.success(data.databaseConnected === false
         ? `Registered ${generatedLabId} in demo mode.`
-        : `Registered! Linked ${generatedLabId} successfully to MongoDB.`
+        : `Registered! Linked ${generatedLabId} successfully to the database.`
       );
       
       // Automatically switch to the live queue to show the newly registered patient.
@@ -610,7 +639,7 @@ export default function Home() {
     setIsReportSaving(true);
 
     try {
-      const reportNumber = `${selectedReportPatient.id}-${Date.now()}`;
+      const reportNumber = `${selectedReportPatient.id}-${String(selectedReportPatient.id || "report").slice(-4).toUpperCase()}-RPT`;
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: {
@@ -689,7 +718,7 @@ export default function Home() {
     setIsReportSaving(true);
 
     try {
-      const reportNumber = `${patient.id}-${Date.now()}`;
+      const reportNumber = `${patient.id}-${String(patient.id || "report").slice(-4).toUpperCase()}-RPT`;
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: {
@@ -2294,7 +2323,7 @@ export default function Home() {
             );
           })}
         </nav>
-        <div className="px-3.5 pb-2">
+        <div className="px-3.5 pb-2 space-y-1">
           <button
             type="button"
             onClick={() => setIsCustomizerOpen(true)}
@@ -2302,6 +2331,14 @@ export default function Home() {
           >
             <Settings className="h-4 w-4 shrink-0" />
             Edit dashboard
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-red-200/90 hover:bg-red-500/15 hover:text-red-100 transition-all"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            Logout
           </button>
         </div>
         <div className="p-3.5 pt-3 border-t border-white/10">
@@ -2360,7 +2397,7 @@ export default function Home() {
                 );
               })}
             </nav>
-            <div className="px-3.5 pb-4">
+            <div className="px-3.5 pb-4 space-y-1">
               <button
                 type="button"
                 onClick={() => {
@@ -2371,6 +2408,17 @@ export default function Home() {
               >
                 <Settings className="h-4 w-4 shrink-0" />
                 Edit dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileSidebarOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm text-red-200/90 hover:bg-red-500/15 hover:text-red-100"
+              >
+                <LogOut className="h-4 w-4 shrink-0" />
+                Logout
               </button>
             </div>
           </aside>

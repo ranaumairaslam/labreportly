@@ -25,7 +25,22 @@ export async function POST(req) {
       );
     }
 
-    return NextResponse.json({ token: ADMIN_TOKEN });
+    const response = NextResponse.json({ token: ADMIN_TOKEN });
+
+    // Save super-admin token in cookie
+    response.cookies.set(
+      "super_admin_token",
+      ADMIN_TOKEN,
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 7
+      }
+    );
+
+    return response;
   } catch (e) {
     return NextResponse.json(
       { message: "Bad request" },

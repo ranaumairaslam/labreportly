@@ -252,9 +252,22 @@ function TemplateCustomizer({ open, branding, onClose, onSave }) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => updateDraft("logoUrl", reader.result);
-    reader.readAsDataURL(file);
+    (async () => {
+      try {
+        const fd = new FormData();
+        fd.append('image', file);
+
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Upload failed');
+
+        updateDraft('logoUrl', data.imageUrl);
+        toast.success('Report logo uploaded');
+      } catch (err) {
+        console.error('Report logo upload failed', err);
+        toast.error(err.message || 'Could not upload report logo');
+      }
+    })();
   };
 
   const handleSubmit = async (event) => {

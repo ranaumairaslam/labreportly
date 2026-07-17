@@ -80,13 +80,18 @@ export default function StaffLogin() {
     const credentials = { email: email.trim(), password };
 
     try {
+      // 1. Try lab-owner login first
       const labRes = await fetch("/api/labs/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
+        credentials: "include",
+        cache: "no-store",
       });
 
       const labData = await labRes.json();
+        console.log("Lab login response:", labData);
+        
       if (labRes.ok) {
         localStorage.setItem("lab_profile", JSON.stringify(labData.lab));
         localStorage.setItem("lab_dashboard_branding", JSON.stringify({
@@ -101,10 +106,13 @@ export default function StaffLogin() {
           dashboardMenuOrder: labData.lab.branding?.dashboardMenuOrder || ["Overview", "New Registration", "Revenue", "Reports"],
           staffMenuOrder: labData.lab.branding?.staffMenuOrder || ["Registration", "Report Generated"],
         }));
-        router.push("/dashboard");
+        if (typeof window !== "undefined") {
+          window.location.assign("/dashboard");
+        }
         return;
       }
 
+      // 2. If lab login says invalid credentials, try staff login
       if (labData.message === "Invalid email or password") {
         const staffRes = await fetch("/api/staff/login", {
           method: "POST",
@@ -113,6 +121,7 @@ export default function StaffLogin() {
         });
 
         const staffData = await staffRes.json();
+
         if (staffRes.ok) {
           localStorage.setItem("staff_profile", JSON.stringify({
             ...staffData.staff,
@@ -122,7 +131,9 @@ export default function StaffLogin() {
           if (staffData.staff?.labId) {
             localStorage.setItem("lab_profile", JSON.stringify({ id: staffData.staff.labId }));
           }
-          router.push("/staff-dashboard");
+          if (typeof window !== "undefined") {
+            window.location.assign("/staff-dashboard");
+          }
           return;
         }
 
@@ -143,16 +154,16 @@ export default function StaffLogin() {
       <div className="w-full max-w-md">
 
         {/* LOGO SECTION */}
-      <div className="flex flex-col items-center mb-6">
-  <div className="relative w-24 h-24 overflow-hidden rounded-full border border-slate-200 bg-white shadow-md flex items-center justify-center">
-    <Image
-      src={branding.logoUrl || "/"}
-      alt={branding.labName || ""}
-      fill
-      className="object-cover"
-      unoptimized
-    />
-  </div>
+        <div className="flex flex-col items-center mb-6">
+          <div className="relative w-24 h-24 overflow-hidden rounded-full border border-slate-200 bg-white shadow-md flex items-center justify-center">
+            <Image
+              src={branding.logoUrl || "/"}
+              alt={branding.labName || ""}
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          </div>
 
           <h1 className="text-3xl font-extrabold text-[#004d26] mt-3 tracking-wide uppercase">
             {branding.labName || ""}

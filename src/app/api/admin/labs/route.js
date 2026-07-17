@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { ensureDatabaseIndexes, getCollections, toObjectId } from "@/lib/db";
 
 const ADMIN_TOKEN = process.env.SUPER_ADMIN_TOKEN || "super_admin_demo_token";
@@ -7,9 +8,38 @@ function unauthorized() {
   return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
 }
 
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+async function hashPassword(password) {
+  if (!password) return "";
+  if (password.startsWith("$2a$") || password.startsWith("$2b$") || password.startsWith("$2y$")) {
+    return password;
+  }
+  return bcrypt.hash(password, 10);
+}
+
+// Sequential IDs like LAB-0001, LAB-0002, ...
+async function getNextLabId(collections) {
+  if (!collections.counters) {
+    throw new Error("counters collection is not registered in getCollections()");
+  }
+  const result = await collections.counters.findOneAndUpdate(
+    { _id: "labId" },
+    { $inc: { seq: 1 } },
+    { upsert: true, returnDocument: "after" }
+  );
+  // Driver-version safe: some driver versions return the doc directly,
+  // others wrap it in { value }.
+  const seq = result?.value?.seq ?? result?.seq;
+  return "LAB-" + String(seq).padStart(4, "0");
+}
+
 function formatLab(lab) {
   return {
     id: lab._id.toString(),
+    labId: lab.labId || null,
     name: lab.name,
     owner: lab.owner || "N/A",
     email: lab.email,
@@ -49,7 +79,8 @@ export async function POST(req) {
 
   try {
     await ensureDatabaseIndexes();
-    const { labs: labsCollection } = await getCollections();
+    const collections = await getCollections();
+    const { labs: labsCollection } = collections;
     const body = await req.json();
     const { name, owner, email, password, status } = body || {};
 
@@ -57,17 +88,21 @@ export async function POST(req) {
       return NextResponse.json({ message: "Missing required parameters (name, email, password)" }, { status: 400 });
     }
 
-    const existingLab = await labsCollection.findOne({ email });
+    const normalizedEmail = normalizeEmail(email);
+    const hashedPassword = await hashPassword(password);
+    const existingLab = await labsCollection.findOne({ email: normalizedEmail });
     if (existingLab) {
       return NextResponse.json({ message: "A laboratory with this email already exists" }, { status: 409 });
     }
 
+    const labId = await getNextLabId(collections);
     const now = new Date();
     const result = await labsCollection.insertOne({
+      labId,
       name,
       owner: owner || "N/A",
-      email,
-      password,
+      email: normalizedEmail,
+      password: hashedPassword,
       status: status || "Active",
       createdAt: now,
       updatedAt: now,
@@ -100,12 +135,24 @@ export async function PUT(req) {
       return NextResponse.json({ message: "Invalid laboratory ID" }, { status: 400 });
     }
 
+    const normalizedEmail = email !== undefined ? normalizeEmail(email) : undefined;
+    const hashedPassword = password !== undefined ? await hashPassword(password) : undefined;
+
+    if (normalizedEmail) {
+      const existingLab = await labsCollection.findOne({ email: normalizedEmail, _id: { $ne: _id } });
+      if (existingLab) {
+        return NextResponse.json({ message: "A laboratory with this email already exists" }, { status: 409 });
+      }
+    }
+
+    // labId is intentionally NOT editable here — it's assigned once at creation
+    // and should stay stable for the life of the lab.
     const data = {
       ...(status !== undefined && { status }),
       ...(name !== undefined && { name }),
       ...(owner !== undefined && { owner }),
-      ...(email !== undefined && { email }),
-      ...(password !== undefined && { password }),
+      ...(normalizedEmail !== undefined && { email: normalizedEmail }),
+      ...(hashedPassword !== undefined && { password: hashedPassword }),
       ...(branding !== undefined && { branding }),
       ...(address !== undefined && { address }),
       ...(phone !== undefined && { phone }),

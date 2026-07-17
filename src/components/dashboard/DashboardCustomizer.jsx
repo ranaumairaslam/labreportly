@@ -42,9 +42,27 @@ export default function DashboardCustomizer({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => updateDraft("logoUrl", reader.result);
-    reader.readAsDataURL(file);
+    // Upload image to server and save returned path
+    (async () => {
+      try {
+        const fd = new FormData();
+        fd.append('image', file);
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: fd,
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Upload failed');
+
+        updateDraft('logoUrl', data.imageUrl);
+        toast.success('Logo uploaded');
+      } catch (err) {
+        console.error('Logo upload failed', err);
+        toast.error(err.message || 'Could not upload logo');
+      }
+    })();
   };
 
   const handleDrop = (targetName) => {
