@@ -20,9 +20,26 @@ async function hashPassword(password) {
   return bcrypt.hash(password, 10);
 }
 
+// Sequential IDs like LAB-0001, LAB-0002, ...
+async function getNextLabId(collections) {
+  if (!collections.counters) {
+    throw new Error("counters collection is not registered in getCollections()");
+  }
+  const result = await collections.counters.findOneAndUpdate(
+    { _id: "labId" },
+    { $inc: { seq: 1 } },
+    { upsert: true, returnDocument: "after" }
+  );
+  // Driver-version safe: some driver versions return the doc directly,
+  // others wrap it in { value }.
+  const seq = result?.value?.seq ?? result?.seq;
+  return "LAB-" + String(seq).padStart(4, "0");
+}
+
 function formatLab(lab) {
   return {
     id: lab._id.toString(),
+    labId: lab.labId || null,
     name: lab.name,
     owner: lab.owner || "N/A",
     email: lab.email,
@@ -62,7 +79,8 @@ export async function POST(req) {
 
   try {
     await ensureDatabaseIndexes();
-    const { labs: labsCollection } = await getCollections();
+    const collections = await getCollections();
+    const { labs: labsCollection } = collections;
     const body = await req.json();
     const { name, owner, email, password, status } = body || {};
 
@@ -77,8 +95,10 @@ export async function POST(req) {
       return NextResponse.json({ message: "A laboratory with this email already exists" }, { status: 409 });
     }
 
+    const labId = await getNextLabId(collections);
     const now = new Date();
     const result = await labsCollection.insertOne({
+      labId,
       name,
       owner: owner || "N/A",
       email: normalizedEmail,
@@ -125,6 +145,8 @@ export async function PUT(req) {
       }
     }
 
+    // labId is intentionally NOT editable here — it's assigned once at creation
+    // and should stay stable for the life of the lab.
     const data = {
       ...(status !== undefined && { status }),
       ...(name !== undefined && { name }),
