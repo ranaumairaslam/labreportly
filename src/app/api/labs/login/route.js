@@ -51,17 +51,17 @@ export async function POST(req) {
       );
     }
 
-    if (!process.env.JWT_SECRET) {
-      console.error("JWT_SECRET is missing in .env.local");
-      return NextResponse.json({ message: "Server configuration error." }, { status: 500 });
-    }
+    // if (!process.env.JWT_SECRET) {
+    //   console.error("JWT_SECRET is missing in .env.local");
+    //   return NextResponse.json({ message: "Server configuration error." }, { status: 500 });
+    // }
 
     const role = "lab_admin"; // labs collection = the lab_admin account itself
 
     const token = jwt.sign(
       { id: lab._id, labId: lab.labId, email: lab.email, role },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "1d" }
     );
 
     await labs.updateOne({ _id: lab._id }, { $set: { token, lastLogin: new Date() } });
