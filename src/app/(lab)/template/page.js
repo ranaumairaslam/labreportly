@@ -929,7 +929,6 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
               */}
               <div className="overflow-x-auto space-y-6">
                 {(() => {
-                  let globalIndex = -1;
                   const groupedTables = groupRowsIntoTables(testResults, reportColumns);
                   return groupedTables.map((table, tIdx) => (
                     <div key={tIdx} className="rounded-lg border border-slate-200 overflow-hidden shadow-sm">
@@ -945,11 +944,12 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                           </tr>
                         </thead>
                         <tbody>
-                          {table.rows.map((row) => {
-                            globalIndex += 1;
+                          {table.rows.map((row, idxInTable) => {
+                            const globalIndex = table.rows.length * tIdx + idxInTable;
                             const i = globalIndex;
                             return (
                               <tr key={row.id || i} className={`text-sm ${row.isSection ? 'bg-emerald-50' : 'odd:bg-white even:bg-slate-50'}`}>
+
                                 {table.columns.map((column) => (
                                   <td key={column.key} className="border border-slate-200 p-1">
                                     {column.key === "test" && (

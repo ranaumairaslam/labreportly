@@ -88,7 +88,7 @@ export default function StaffLogin() {
         credentials: "include",
         cache: "no-store",
       });
-
+        console.log("Lab login response status:", labRes.status, "ok:", labRes.ok);
       const labData = await labRes.json();
         console.log("Lab login response:", labData);
         

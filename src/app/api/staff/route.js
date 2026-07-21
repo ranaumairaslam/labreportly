@@ -23,7 +23,7 @@ export async function POST(req) {
     const body = await req.json();
     const authLabId = getAuthenticatedLabId(req);
     const scopeLabId = authLabId || body.labId?.trim() || null;
-    const { staffAccounts } = await getCollections(scopeLabId);
+    const { staffAccounts } = await getCollections();
     const name = body.name?.trim();
     const email = normalizeEmail(body.email);
     const password = body.password;
@@ -87,7 +87,7 @@ export async function GET(req) {
       return NextResponse.json({ staff: [] });
     }
 
-    const { staffAccounts } = await getCollections(scopeLabId);
+    const { staffAccounts } = await getCollections();
     const filter = scopeLabId ? { labId: scopeLabId } : {};
     const accounts = await staffAccounts.find(filter).sort({ createdAt: -1 }).toArray();
 
