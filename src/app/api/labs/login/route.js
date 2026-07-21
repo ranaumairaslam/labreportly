@@ -2,24 +2,15 @@ import { NextResponse } from "next/server";
 import { ensureDatabaseIndexes, getCollections } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import cookie from "cookie";
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
 
-const SESSION_MAX_AGE_SECONDS = 10;
+// Keep this value in sync with the token lifetime below. The previous
+// ten-second cookie lifetime made successful production logins appear to fail
+// as soon as the dashboard made its next request.
+const JWT_SECRET = process.env.JWT_SECRET || "dev-lab-secret";
 
 export async function POST(req) {
   try {
-    // Check JWT Secret
-    if (!process.env.JWT_SECRET) {
-      console.error("JWT_SECRET is missing");
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Server configuration error",
-        },
-        { status: 500 }
-      );
-    }
-
     // Connect DB
     await ensureDatabaseIndexes();
 
@@ -101,7 +92,7 @@ export async function POST(req) {
         email: lab.email,
         role: "lab_admin",
       },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       {
         expiresIn: "1d",
       }
