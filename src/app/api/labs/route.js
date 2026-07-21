@@ -118,6 +118,6 @@ export async function PUT(req) {
     });
   } catch (error) {
     console.error("PUT /api/labs error:", error);
-    return NextResponse.json({ message: error.message || "Internal Server Error" }, { status: 500 });
+    return NextResponse.json({ message: error || "Internal Server Error" }, { status: 500 });
   }
 }

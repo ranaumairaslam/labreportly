@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -136,12 +137,7 @@ function getReportTemplateFromExam(templates, examRequired) {
 }
 
 // Single, unified matcher used everywhere a "tests" param needs to be turned
-// into one-or-more report templates. Previously there were two different,
-// conflicting matching algorithms (a raw substring check here, and a token
-// scoring function elsewhere) that could disagree on which templates were
-// selected depending on where in the component they ran. Now there is only
-// one source of truth: split the requested exam string on commas, and find
-// the best-scoring template for each requested test.
+// into one-or-more report templates.
 function getMatchingReportTemplates(templates, examString) {
   const requestedTests = (examString || "")
     .split(",")
@@ -187,9 +183,19 @@ function getInitialFormData(searchParams, reportTemplate, patientData) {
 
   return {
     id: patientId || createUniqueReportId(),
+    caseNumber: getParam("caseNumber") || getParam("reportNumber") || "",
     date: registeredAt || new Date().toISOString().split('T')[0],
     name: patientName || "Patient",
+    age: getParam("age") || "",
+    gender: getParam("gender") || "",
+    bloodGroup: getParam("bloodGroup") || "Unknown",
+    nic: getParam("nic") || "",
+    contact: getParam("contact") || getParam("phone") || "",
+    address: getParam("address") || "",
+    registrationLocation: getParam("registrationLocation") || "",
+    destinationLocation: getParam("destinationLocation") || "",
     refBy: getParam("refDoctor") || getParam("refBy") || "Self",
+    consultant: getParam("consultant") || "",
     specimen: getParam("specimen") || reportTemplate.specimen || "Blood",
     examRequired: tests || reportTemplate.examRequired || "",
     categoryTitle: reportTemplate.categoryTitle || "LABORATORY REPORT",
@@ -202,16 +208,26 @@ function paginateRows(rows, mode) {
   let currentPage = [];
   let currentUnits = 0;
 
-  // capacity based on whether letterhead + patient header occupies space
-  const firstPageCapacity = mode === "pdf" ? 9 : 13;
-  const subsequentPageCapacity = 18;
+  // Capacity is deliberately conservative. A result can wrap onto several
+  // lines (especially reference ranges), so treating every row as one line
+  // caused the fixed-size print page to cut off the last rows.
+  const firstPageCapacity = mode === "pdf" ? 8 : 11;
+  const subsequentPageCapacity = 15;
 
   let isFirstPage = true;
 
   rows.forEach((row) => {
     let rowUnits = 1;
     if (row.isSection) rowUnits = 1.5;
-    if (row.newTable) rowUnits = 2.5;
+    if (row.newTable) rowUnits += 1.25;
+
+    const columns = row.tableColumns || DEFAULT_REPORT_COLUMNS;
+    const longestCell = columns.reduce((longest, column) => {
+      const value = String(row[column.key] || "");
+      const charactersPerLine = column.key === "test" ? 32 : 18;
+      return Math.max(longest, Math.ceil(value.length / charactersPerLine));
+    }, 1);
+    rowUnits += Math.max(0, longestCell - 1) * 0.8;
 
     const capacity = isFirstPage ? firstPageCapacity : subsequentPageCapacity;
 
@@ -388,6 +404,24 @@ function TemplateCustomizer({ open, branding, onClose, onSave }) {
   );
 }
 
+// Decorative barcode-style block. Purely visual (matches the look of a
+// scanned lab report) - swap for a real barcode library (e.g. jsbarcode) if
+// the barcode needs to be scannable.
+function BarcodeStrip({ value }) {
+  return (
+    <div className="flex flex-col items-end">
+      <div
+        className="h-8 w-48"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(90deg, #000 0px, #000 2px, transparent 2px, transparent 3px, #000 3px, #000 4px, transparent 4px, transparent 6px)",
+        }}
+      />
+      <span className="mt-0.5 text-[10px] tracking-widest text-slate-700">{value}</span>
+    </div>
+  );
+}
+
 function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, onReportSaved }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -396,7 +430,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
   const [isTemplateCustomizerOpen, setIsTemplateCustomizerOpen] = useState(false);
   const [reportTemplates, setReportTemplates] = useState(REPORT_TEMPLATES);
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true);
-  const [templateMode, setTemplateMode] = useState("pdf"); 
+  const [templateMode, setTemplateMode] = useState("pdf");
   const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
 
   const getParam = (key) => {
@@ -473,7 +507,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
 
         const firstTemplate = templatesToMerge[0] || nextTemplates[0];
         setReportColumns(getTemplateColumns(firstTemplate));
-        
+
         setFormData((prev) => ({
           ...prev,
           specimen: getParam("specimen") || firstTemplate.specimen,
@@ -517,8 +551,18 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         setFormData((prev) => ({
           ...prev,
           id: report.patientId || prev.id,
+          caseNumber: report.caseNumber || report.reportNumber || prev.caseNumber,
           name: report.patientName || prev.name,
+          age: report.patientAge || prev.age,
+          gender: report.patientGender || prev.gender,
+          bloodGroup: report.bloodGroup || prev.bloodGroup,
+          nic: report.nic || prev.nic,
+          contact: report.patientContact || prev.contact,
+          address: report.address || prev.address,
+          registrationLocation: report.registrationLocation || prev.registrationLocation,
+          destinationLocation: report.destinationLocation || prev.destinationLocation,
           refBy: report.specialistReferral || report.specialReferral || prev.refBy,
+          consultant: report.consultant || prev.consultant,
           specimen: report.specimen || prev.specimen,
           examRequired: report.examRequired || prev.examRequired,
           categoryTitle: report.categoryTitle || prev.categoryTitle,
@@ -569,10 +613,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
       const next = prev.includes(key)
         ? prev.filter((k) => k !== key)
         : [...prev, key];
-      
+
       const templatesToMerge = reportTemplates.filter((t) => next.includes(t.key));
       const combinedRows = [];
-      
+
       templatesToMerge.forEach((template, idx) => {
         const tplColumns = getTemplateColumns(template);
         if (templatesToMerge.length > 1) {
@@ -589,7 +633,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         }
         combinedRows.push(...cloneRows(template.rows, tplColumns));
       });
-      
+
       const firstTemplate = templatesToMerge[0] || reportTemplates[0];
       setFormData((prevForm) => ({
         ...prevForm,
@@ -597,12 +641,12 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         examRequired: templatesToMerge.map((t) => t.label).join(", ") || "Laboratory Report",
         categoryTitle: templatesToMerge.length > 1 ? "LABORATORY REPORT" : (firstTemplate?.categoryTitle || "LABORATORY REPORT"),
       }));
-      
+
       setTestResults(combinedRows);
       if (firstTemplate) {
         setReportColumns(getTemplateColumns(firstTemplate));
       }
-      
+
       return next;
     });
   };
@@ -643,17 +687,43 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
     setTestResults(newTests);
   };
 
-  const handleGenerateReport = () => {
+  const handleGenerateAndPrintReport = () => {
     if (!formData.name || !formData.specimen) {
       toast.error("Please enter a patient name and select a specimen type.");
       return;
     }
-    setIsGenerating(true);
+
+    // Commit every paginated report page before saving and opening print.
+    flushSync(() => setIsGenerating(true));
+    void handleReportOutput("print");
   };
 
   const [isReportSaving, setIsReportSaving] = useState(false);
 
-  const handlePrintReport = async () => {
+  const openReportPrintDialog = async (output) => {
+    // Wait for fonts and the latest report layout before opening the dialog.
+    // This prevents a PDF/print preview from capturing a partially rendered page.
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+
+    const reportImages = Array.from(document.querySelectorAll(".report-print-root img"));
+    await Promise.all(reportImages.map((image) => {
+      if (image.complete) return Promise.resolve();
+      return new Promise((resolve) => {
+        image.addEventListener("load", resolve, { once: true });
+        image.addEventListener("error", resolve, { once: true });
+      });
+    }));
+
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    if (output === "pdf") {
+      toast.info("Select 'Save as PDF' in the print dialog to download the complete report.");
+    }
+    window.print();
+  };
+
+  const handleReportOutput = async (output = "print") => {
     setIsReportSaving(true);
     const uniqueId = createUniqueReportId();
     const reportNumber = formData.id || uniqueId;
@@ -662,15 +732,22 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
     try {
       const reportPayload = {
         reportNumber,
+        caseNumber: formData.caseNumber || reportNumber,
         patientId,
         patientName: formData.name || "Unknown Patient",
         labId: branding.labId || "default-lab",
         status: "Completed",
         templateMode,
         templateBranding: branding,
-        patientContact: getParam("contact") || null,
-        patientAge: getParam("age") || null,
-        patientGender: getParam("gender") || null,
+        patientContact: formData.contact || getParam("contact") || null,
+        patientAge: formData.age || getParam("age") || null,
+        patientGender: formData.gender || getParam("gender") || null,
+        bloodGroup: formData.bloodGroup || null,
+        nic: formData.nic || null,
+        address: formData.address || null,
+        registrationLocation: formData.registrationLocation || null,
+        destinationLocation: formData.destinationLocation || null,
+        consultant: formData.consultant || null,
         totalBill: getParam("totalBill") || null,
         pendingBalance: getParam("pendingBalance") || null,
         registeredAt: getParam("registeredAt") || null,
@@ -740,7 +817,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         toast.error("Report saved, but patient record could not be updated.");
       }
 
-      window.print();
+      await openReportPrintDialog(output);
     } catch (error) {
       console.error(error);
       toast.error(error.message || "Could not save report before printing.");
@@ -781,8 +858,8 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         )}
 
         <div className="flex justify-between items-center mb-4 px-2">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={handleDashboardNavigation}
             className="border-slate-300 bg-white hover:bg-slate-100 text-slate-800"
           >
@@ -810,7 +887,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         <div className="bg-white rounded-xl shadow-md border border-slate-200 p-6 md:p-8">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
             <h2 className="text-2xl font-bold text-slate-900">Edit Report Data</h2>
-            
+
             <div className="bg-slate-100 p-1.5 rounded-lg border border-slate-200">
               <RadioGroup value={templateMode} onValueChange={setTemplateMode} className="flex gap-2">
                 <div className="flex items-center space-x-1">
@@ -836,6 +913,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                 <Input name="id" value={formData.id} onChange={handleInputChange} />
               </div>
               <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Case No.</label>
+                <Input name="caseNumber" value={formData.caseNumber} onChange={handleInputChange} />
+              </div>
+              <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Date</label>
                 <Input name="date" value={formData.date} onChange={handleInputChange} />
               </div>
@@ -844,8 +925,44 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                 <Input name="name" value={formData.name} onChange={handleInputChange} />
               </div>
               <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Age</label>
+                <Input name="age" value={formData.age} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Gender</label>
+                <Input name="gender" value={formData.gender} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Blood Group</label>
+                <Input name="bloodGroup" value={formData.bloodGroup} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">NIC</label>
+                <Input name="nic" value={formData.nic} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Phone</label>
+                <Input name="contact" value={formData.contact} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Address</label>
+                <Input name="address" value={formData.address} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Registration Location</label>
+                <Input name="registrationLocation" value={formData.registrationLocation} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Destination Location</label>
+                <Input name="destinationLocation" value={formData.destinationLocation} onChange={handleInputChange} />
+              </div>
+              <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Ref. By</label>
                 <Input name="refBy" value={formData.refBy} onChange={handleInputChange} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Consultant</label>
+                <Input name="consultant" value={formData.consultant} onChange={handleInputChange} />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Specimen Type</label>
@@ -874,10 +991,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                   className="flex h-10 w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-black shadow-xs focus:outline-hidden focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="truncate">
-                    {isLoadingTemplates 
-                      ? "Loading reports..." 
-                      : selectedReportTemplates.length > 0 
-                        ? `${selectedReportTemplates.length} selected` 
+                    {isLoadingTemplates
+                      ? "Loading reports..."
+                      : selectedReportTemplates.length > 0
+                        ? `${selectedReportTemplates.length} selected`
                         : "Choose report type(s)"}
                   </span>
                   <span className="text-xs text-slate-500">▼</span>
@@ -921,11 +1038,9 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
               </div>
 
               {/*
-                Each selected report template now renders as its own table,
-                with its own column headers, instead of one flat table forced
-                to use a single template's columns. This is what makes
-                multiple selected reports display correctly, each according
-                to its own parameters, without visual or data conflicts.
+                Each selected report template renders as its own table, with
+                its own column headers, instead of one flat table forced to
+                use a single template's columns.
               */}
               <div className="overflow-x-auto space-y-6">
                 {(() => {
@@ -1005,8 +1120,8 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
             </div>
 
             <div className="flex gap-3 pt-4">
-              <Button onClick={handleGenerateReport} className="bg-[#114a2f] text-white hover:bg-[#0a301e] w-full md:w-auto px-8 shadow-sm">
-                Generate {templateMode === "pdf" ? "PDF View" : "Plain Print View"}
+              <Button onClick={handleGenerateAndPrintReport} className="bg-[#114a2f] text-white hover:bg-[#0a301e] w-full md:w-auto px-8 shadow-sm">
+                <Printer className="w-4 h-4 mr-2" /> Generate & Print All Pages
               </Button>
             </div>
           </div>
@@ -1015,7 +1130,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
     );
   }
 
-  // --- PRINT / GENERATED VIEW (Multi-Page Paginated Dynamic Layout Configuration) ---
+  // --- PRINT / GENERATED VIEW ---
   return (
     <div className="report-print-root w-full bg-slate-100 py-8 min-h-screen flex flex-col items-center select-text">
       {isTemplateCustomizerOpen && (
@@ -1033,38 +1148,76 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
           margin: 0;
         }
         @media print {
-          body, html {
-            height: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background-color: #fff !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+          /*
+            THE FIX FOR "ONLY ONE PAGE / LOOKS LIKE A SCREENSHOT":
+            If this component is rendered inside a modal, drawer, or any
+            ancestor with a fixed height + overflow (a scroll container),
+            window.print() will only be able to print what's inside that
+            ancestor's visible box - everything past it gets clipped, which
+            looks exactly like a single-page screenshot instead of a real
+            multi-page document.
+            The fix: hide every other element on the page, then pull the
+            report out of normal flow with position:fixed so it completely
+            ignores any parent's height/overflow/transform constraints, and
+            let @page + page-break-after handle the actual pagination.
+          */
+          html, body {
+            height: auto !important;
+            overflow: visible !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .report-print-root,
+          .report-print-root * {
+            visibility: visible !important;
           }
           .report-print-root {
+            position: fixed !important;
+            inset: 0 !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: auto !important;
             min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            transform: none !important;
             padding: 0 !important;
+            margin: 0 !important;
             background-color: #fff !important;
             display: block !important;
+            z-index: 2147483647 !important;
           }
           .print-container {
             width: 210mm !important;
-            height: 297mm !important;
-            max-height: 297mm !important;
+            min-height: 297mm !important;
+            height: auto !important;
             box-shadow: none !important;
-            margin: 0 !important;
-            padding: ${templateMode === "print" ? "25mm 12mm 15mm 12mm" : "8mm 10mm"} !important;
+            margin: 0 auto !important;
+            padding: ${templateMode === "print" ? "20mm 12mm 14mm 12mm" : "10mm 12mm"} !important;
             position: relative !important;
-            overflow: hidden !important;
+            overflow: visible !important;
             box-sizing: border-box !important;
             page-break-after: always !important;
             break-after: page !important;
           }
+          .print-container:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
           table {
-            page-break-inside: avoid !important;
+            break-inside: auto !important;
+          }
+          thead {
+            display: table-header-group !important;
           }
           tr {
             page-break-inside: avoid !important;
+            break-inside: avoid-page !important;
+          }
+          td, th, p {
+            overflow-wrap: anywhere !important;
           }
         }
       `}} />
@@ -1074,11 +1227,10 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
         const isLastPage = pageIdx === activePages.length - 1;
 
         return (
-          <div 
-            key={pageIdx} 
-            className="print-container bg-white w-[210mm] h-[297mm] shadow-2xl relative flex flex-col justify-between p-10 box-border print:shadow-none print:w-full print:mb-0 mb-8"
+          <div
+            key={pageIdx}
+            className="print-container bg-white w-[210mm] min-h-[297mm] shadow-2xl relative flex flex-col justify-between p-10 box-border print:shadow-none print:w-full print:mb-0 mb-8"
           >
-            
             <div className="w-full flex flex-col">
               {templateMode === "pdf" && (
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-0" style={{ opacity: Number(branding.templateWatermarkOpacity) || 0 }}>
@@ -1094,17 +1246,13 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
               )}
 
               <div className="relative z-10 text-black font-serif w-full">
-                
+
                 {templateMode === "pdf" && isFirstPage && (
                   <>
-                    <div className="flex justify-between items-center mb-1 mt-0">
-                      <div className="text-left w-1/3">
-                        <h1 className="text-[38px] tracking-tight" style={{ color: branding.primaryColor }}>{branding.labName}</h1>
-                        <p className="text-[11px] font-semibold tracking-widest text-[#4a5568] ml-6.5 uppercase">{branding.tagline}</p>
-                      </div>
-                      
-                      <div className="w-1/3 flex justify-center">
-                        <div className="w-40 h-40 flex items-center justify-center relative">
+                    {/* Header: logo + lab name (left) / Patient # + Case # with barcode block (right) */}
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-16 relative shrink-0">
                           <Image
                             src={branding.logoUrl}
                             alt={`${branding.labName} logo`}
@@ -1114,23 +1262,67 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                             unoptimized
                           />
                         </div>
+                        <div>
+                          <h1 className="text-[30px] leading-[1.05] font-bold tracking-tight" style={{ color: branding.primaryColor }}>
+                            {branding.labName}
+                          </h1>
+                          <p className="text-[11px] font-semibold tracking-widest text-[#4a5568] uppercase">{branding.tagline}</p>
+                        </div>
                       </div>
 
-                      <div className="text-right w-1/3">
-                        <h1 className="text-[52px] font-bold leading-tight" style={{ color: branding.primaryColor, fontFamily: 'Arial, sans-serif' }}>{branding.templateUrduName}</h1>
-                        <p className="text-[20px] font-medium text-[#4a5568] mr-10.5" style={{ fontFamily: '"Jameel Noori Nastaleeq", "Urdu Typesetting", sans-serif' }}>
-                          {branding.templateUrduTagline}
-                        </p>
+                      <div className="text-right shrink-0 font-sans">
+                        <div className="flex items-center justify-end gap-2 mb-1">
+                          <span className="text-[12px] font-bold text-slate-700">Patient #:</span>
+                          <BarcodeStrip value={formData.id} />
+                        </div>
+                        {formData.caseNumber && (
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="text-[12px] font-bold text-slate-700">Case #:</span>
+                            <BarcodeStrip value={formData.caseNumber} />
+                          </div>
+                        )}
                       </div>
                     </div>
-                    
+
                     <hr className="border-t border-black mb-0.5" />
-                    <hr className="border-t-[3px] border-black mb-4" />
+                    <hr className="border-t-[3px] mb-4" style={{ borderColor: branding.primaryColor }} />
+
+                    {/* Patient info strip */}
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-[12px] font-sans mb-3">
+                      <div className="grid grid-cols-[110px_1fr] gap-y-1">
+                        <span className="font-bold text-slate-700">Patient Name:</span>
+                        <span className="uppercase">{formData.name}</span>
+                        <span className="font-bold text-slate-700">Age/Sex:</span>
+                        <span>{[formData.age && `${formData.age} Year(s)`, formData.gender].filter(Boolean).join(" / ") || "-"}</span>
+                        <span className="font-bold text-slate-700">Blood Group:</span>
+                        <span>{formData.bloodGroup || "Unknown"}</span>
+                        <span className="font-bold text-slate-700">NIC:</span>
+                        <span>{formData.nic || "-"}</span>
+                        <span className="font-bold text-slate-700">Phone:</span>
+                        <span>{formData.contact || "-"}</span>
+                        <span className="font-bold text-slate-700">Address:</span>
+                        <span>{formData.address || "-"}</span>
+                      </div>
+                      <div className="grid grid-cols-[150px_1fr] gap-y-1">
+                        <span className="font-bold text-slate-700">Registration Date:</span>
+                        <span>{formData.date}</span>
+                        <span className="font-bold text-slate-700">Registration Location:</span>
+                        <span>{formData.registrationLocation || "-"}</span>
+                        <span className="font-bold text-slate-700">Destination Location:</span>
+                        <span>{formData.destinationLocation || "-"}</span>
+                        <span className="font-bold text-slate-700">Reference:</span>
+                        <span>{formData.refBy || "Self"}</span>
+                        <span className="font-bold text-slate-700">Consultant:</span>
+                        <span>{formData.consultant || "-"}</span>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-dashed border-slate-400 mb-3" />
                   </>
                 )}
 
                 {!isFirstPage && (
-                  <div className="flex justify-between items-center border-b border-slate-300 pb-2 mb-4">
+                  <div className="flex justify-between items-center border-b border-slate-300 pb-2 mb-4 font-sans">
                     <span className="text-xs font-semibold text-slate-500">{branding.labName}</span>
                     <span className="text-xs font-semibold text-slate-500">Patient: {formData.name} (Lab No: {formData.id})</span>
                   </div>
@@ -1139,42 +1331,15 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                 {templateMode === "print" && isFirstPage && <div className="h-6 w-full" />}
 
                 {isFirstPage && (
-                  <table className="w-full text-[13px] border border-black mb-7 mt-22 table-fixed">
-                    <tbody>
-                      <tr>
-                        <td className="w-[15%] p-1 border border-black font-bold bg-[#f3f4f6]">Lab No:</td>
-                        <td className="w-[35%] p-1 border border-black font-bold px-2">{formData.id}</td>
-                        <td className="w-[15%] p-1 border border-black font-bold bg-[#f3f4f6]">Date & Time:</td>
-                        <td className="w-[35%] p-1 border border-black font-bold px-2">
-                          {formData.date || formData.regDateTime}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Patient Name:</td>
-                        <td className="p-1 border border-black font-bold uppercase px-2">{formData.name}</td>
-                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Ref. By:</td>
-                        <td className="p-1 border border-black font-bold px-2">
-                          {formData.refBy || formData.regRefDoctor || "Self"}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Specimen:</td>
-                        <td className="p-1 border border-black font-bold px-2">
-                          {formData.specimen || formData.regSpecimen}
-                        </td>
-                        <td className="p-1 border border-black font-bold bg-[#f3f4f6]">Examination:</td>
-                        <td className="p-1 border border-black font-bold px-2">
-                          {formData.examRequired || formData.regTests}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                )}
-
-                {isFirstPage && (
-                  <h2 className="text-[17px] font-bold text-center mb-3 uppercase tracking-wide">
-                    {formData.categoryTitle}
-                  </h2>
+                  <div className="flex items-end justify-between mb-2">
+                    <h2 className="text-[16px] font-bold uppercase tracking-wide">
+                      {formData.categoryTitle}:
+                    </h2>
+                    <div className="text-right font-sans">
+                      <div className="border border-slate-400 px-3 py-0.5 text-[11px] font-bold uppercase text-slate-700 mb-1">Result</div>
+                      <BarcodeStrip value={`${formData.id} · ${formData.date}`} />
+                    </div>
+                  </div>
                 )}
 
                 {groupRowsIntoTables(pageRows, reportColumns).map((table, tIdx) => (
@@ -1188,15 +1353,17 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                     )}
                     <table className="w-full text-[13px] border-collapse mb-3">
                       <thead>
-                        <tr className="bg-slate-50">
+                        <tr className="bg-slate-100">
+                          <th className="p-1.5 border-b-2 border-black font-bold text-left">TEST</th>
                           {table.columns.map((column) => (
                             <th
                               key={column.key}
-                              className={`p-1 border-b border-black font-bold ${column.key === "test" ? "text-left" : "text-center"}`}
+                              className="p-1.5 border-b-2 border-black font-bold text-left"
                             >
                               {column.label}
                             </th>
                           ))}
+                          <th className="p-1.5 border-b-2 border-black font-bold text-right">RESULT</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1204,7 +1371,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                           if (result.test === "Spacer") {
                             return (
                               <tr key={result.id || createUniqueRowId()}>
-                                <td colSpan={table.columns.length} className="h-3 border border-black bg-white"></td>
+                                <td colSpan={table.columns.length + 2} className="h-3"></td>
                               </tr>
                             );
                           }
@@ -1212,7 +1379,7 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                           if (result.isSection) {
                             return (
                               <tr key={result.id || createUniqueRowId()}>
-                                <td colSpan={table.columns.length} className="p-1.5 border border-black font-bold bg-slate-100 text-left uppercase tracking-wide text-[12px] whitespace-pre-wrap">
+                                <td colSpan={table.columns.length + 2} className="pt-3 pb-1.5 font-bold uppercase tracking-wide text-[13px] border-b border-black whitespace-pre-wrap">
                                   {result.test}
                                 </td>
                               </tr>
@@ -1221,11 +1388,9 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
 
                           if (result.isTwoCol) {
                             return (
-                              <tr key={result.id || createUniqueRowId()}>
-                                <td className="p-1 border border-black font-bold">
-                                  {result.test}
-                                </td>
-                                <td colSpan={table.columns.length - 1} className="p-1 border border-black font-bold text-center">
+                              <tr key={result.id || createUniqueRowId()} className="border-b border-slate-200">
+                                <td className="p-1 font-semibold">{result.test}</td>
+                                <td colSpan={table.columns.length + 1} className="p-1 font-bold text-right">
                                   {result.result || ""}
                                 </td>
                               </tr>
@@ -1233,15 +1398,19 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                           }
 
                           return (
-                            <tr key={result.id || createUniqueRowId()}>
+                            <tr key={result.id || createUniqueRowId()} className="border-b border-slate-200">
+                              <td className="p-1 align-top">{result.test}</td>
                               {table.columns.map((column) => (
                                 <td
                                   key={column.key}
-                                  className={`p-1 border border-black font-bold ${column.key === "test" ? "" : "text-center"} ${column.key === "normalValue" ? "whitespace-pre-line leading-tight text-[12px]" : ""}`}
+                                  className={`p-1 align-top ${column.key === "normalValue" ? "whitespace-pre-line leading-tight text-[12px] text-slate-600" : ""}`}
                                 >
                                   {result[column.key] || ""}
                                 </td>
                               ))}
+                              <td className="p-1 align-top text-right font-bold">
+                                {result.result || ""}
+                              </td>
                             </tr>
                           );
                         })}
@@ -1250,60 +1419,66 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
                   </div>
                 ))}
 
-                {isLastPage && formData.findings && 
-                 !formData.findings.includes("No specific findings were entered") && 
-                 !formData.findings.includes("Report generated automatically") && 
-                 formData.findings !== "Report generated." && 
+                {isLastPage && formData.findings &&
+                 !formData.findings.includes("No specific findings were entered") &&
+                 !formData.findings.includes("Report generated automatically") &&
+                 formData.findings !== "Report generated." &&
                  formData.findings.trim() !== "" && (
                   <div className="w-full p-2 border border-black text-xs font-sans mt-2">
                     <strong>Clinical Notes / Findings:</strong>
                     <p className="whitespace-pre-wrap mt-1 text-slate-700">{formData.findings}</p>
                   </div>
                 )}
-              
+
               </div>
             </div>
 
             <div className="w-full relative z-10 text-black font-serif">
-              <div className="flex justify-between items-center text-[10px] text-slate-500 border-t border-slate-100 pt-2 mb-2 print:mb-1">
+              {isLastPage && (
+                <>
+                  <hr className="border-t border-black mt-6 mb-2" />
+                  <p className="text-center text-[11px] font-sans font-semibold text-slate-700 mb-6">
+                    Electronically verified report. No signature(s) required.
+                  </p>
+                </>
+              )}
+
+              <div className="flex justify-between items-center text-[10px] text-slate-500 border-t border-slate-100 pt-2 mb-2 print:mb-1 font-sans">
                 <span>Printed on: {new Date().toLocaleDateString()}</span>
                 <span>Page {pageIdx + 1} of {activePages.length}</span>
               </div>
 
               {isLastPage && (
-                <div className="flex justify-end mb-8 print:mb-4">
-                  <div className="text-center">
-                    <p className="text-[13px] font-bold border-t border-black/40 pt-1 px-4">{branding.templateInchargeLabel}</p>
-                  </div>
+                <div className="flex justify-center mb-2 print:mb-1">
+                  <p className="text-[12px] font-bold pt-1 px-4 font-sans">{branding.templateInchargeLabel}</p>
                 </div>
               )}
 
               {templateMode === "pdf" && (
-                <div className="text-white text-center py-2 text-[13px] font-bold font-sans tracking-wide -mx-10 -mb-10 print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
+                <div className="text-white text-center py-2 text-[12px] font-bold font-sans tracking-wide -mx-10 -mb-10 print:mx-[-10mm] print:mb-[-8mm]" style={{ backgroundColor: branding.primaryColor }}>
                   {branding.templateFooter}
                 </div>
               )}
             </div>
-
           </div>
         );
       })}
 
       <div className="fixed bottom-8 flex gap-3 print:hidden bg-white/90 backdrop-blur-sm p-4 rounded-full shadow-lg border border-slate-200 z-50">
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           onClick={handleDashboardNavigation}
           className="border-slate-300 rounded-full px-4 text-slate-800 bg-white hover:bg-slate-100"
         >
           <LayoutDashboard className="w-4 h-4 mr-2 text-slate-600" />
           Dashboard
         </Button>
-        <Button 
-          onClick={() => setIsGenerating(false)} 
-          variant="secondary" 
+        <Button
+          onClick={() => setIsGenerating(false)}
+          variant="secondary"
           className="rounded-full px-4 bg-slate-100 hover:bg-slate-200 text-slate-800"
         >
-          <X className="w-4 h-4 mr-2 text-slate-600" /> 
+          <X className="w-4 h-4 mr-2 text-slate-600" />
           Edit Form
         </Button>
         <Button
@@ -1314,12 +1489,21 @@ function LabReportTemplateContent({ onClose, onNavigateDashboard, patientData, o
           <Settings className="w-4 h-4 mr-2 text-slate-600" />
           Edit Template
         </Button>
-        <Button 
-          onClick={handlePrintReport} 
+        <Button
+          onClick={() => handleReportOutput("pdf")}
+          disabled={isReportSaving}
+          variant="outline"
+          className="border-[#114a2f] text-[#114a2f] hover:bg-emerald-50 rounded-full px-6"
+        >
+          <FileText className="w-4 h-4 mr-2" />
+          Save as PDF
+        </Button>
+        <Button
+          onClick={() => handleReportOutput("print")}
           disabled={isReportSaving}
           className="bg-[#114a2f] text-white hover:bg-[#0a301e] rounded-full px-8 shadow-md"
         >
-          <Printer className="w-4 h-4 mr-2" /> 
+          <Printer className="w-4 h-4 mr-2" />
           {isReportSaving ? "Saving..." : "Print Report"}
         </Button>
       </div>
